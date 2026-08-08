@@ -9,6 +9,14 @@ from app.dependencies.rate_limit import init_redis, close_redis
 
 from app.core.database import SessionLocal
 from app.core.init_db import init_db
+from app.api.v1.health import router as health_router
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.instrumentation.redis import RedisInstrumentor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,12 +49,21 @@ app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET_KEY)
 
 setup_exception_handlers(app)
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+# Initialize Sentry if configured
+if getattr(settings, "SENTRY_DSN", None):
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+    )
 
-@app.get(f"{settings.API_V1_STR}/health")
-async def api_health_check():
-    return {"status": "healthy"}
+# Initialize OpenTelemetry if configured
+if getattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None):
+    FastAPIInstrumentor.instrument_app(app)
+    SQLAlchemyInstrumentor().instrument()
+    RedisInstrumentor().instrument()
+
+app.include_router(health_router, prefix="/health", tags=["Health"])
 
 app.include_router(api_router, prefix=settings.API_V1_STR)

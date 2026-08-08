@@ -7,7 +7,7 @@ import asyncio
 from app.dependencies.db import get_db
 from app.dependencies.authz import require_permission
 from app.models.workspace import WorkspaceMember
-from app.repositories.billing_repo import plan_repo, usage_record_repo
+from app.repositories.billing_repo import plan_repo, usage_record_repo, invoice_repo
 from app.services.billing.billing_service import (
     stripe_service, subscription_service, plan_enforcement_service, usage_tracking_service
 )
@@ -17,6 +17,9 @@ router = APIRouter()
 class UsageLogRequest(BaseModel):
     metric_name: str
     metric_value: float = 1.0
+    
+class CheckoutRequest(BaseModel):
+    plan_id: str
 
 # --- PUBLIC ROUTES ---
 
@@ -36,6 +39,48 @@ async def get_current_subscription(
     if not sub:
         raise HTTPException(status_code=404, detail="No subscription found")
     return sub
+
+@router.post("/checkout")
+async def create_checkout(
+    req: CheckoutRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_subscriptions")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate Stripe Checkout URL"""
+    url = await stripe_service.create_checkout_session(db, str(member.workspace_id), req.plan_id)
+    return {"url": url}
+
+@router.post("/customer-portal")
+async def create_customer_portal(
+    member: WorkspaceMember = Depends(require_permission("manage_subscriptions")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate Stripe Customer Portal URL"""
+    url = await stripe_service.create_customer_portal(db, str(member.workspace_id))
+    return {"url": url}
+
+@router.post("/cancel")
+async def cancel_subscription(
+    member: WorkspaceMember = Depends(require_permission("manage_subscriptions")),
+    db: AsyncSession = Depends(get_db)
+):
+    await stripe_service.cancel_subscription(db, str(member.workspace_id))
+    return {"message": "Subscription cancelled."}
+
+@router.get("/invoices")
+async def get_invoices(
+    member: WorkspaceMember = Depends(require_permission("manage_subscriptions")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await invoice_repo.get_by_workspace(db, str(member.workspace_id))
+
+@router.get("/usage")
+async def get_usage(
+    member: WorkspaceMember = Depends(require_permission("manage_billing")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current usage against plan limits"""
+    return await usage_tracking_service.get_usage_summary(db, str(member.workspace_id))
 
 @router.post("/usage")
 async def log_usage_event(
@@ -63,8 +108,6 @@ async def stripe_webhook(
 ):
     """
     Webhook target for Stripe.
-    In a real environment, we would use `stripe.Webhook.construct_event`
-    with the raw payload and `stripe_signature`.
     """
     payload = await request.json()
     

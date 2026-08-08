@@ -10,6 +10,9 @@ from app.repositories.notification_repo import (
     NotificationType, NotificationStatus, NotificationPriority, DeliveryChannel, DeliveryStatus
 )
 from app.repositories.ticket_repo import ticket_repo
+from app.services.analytics_service import analytics_service
+from app.services.automation.automation_service import automation_engine
+from app.services.integrations.sync_engine import sync_engine
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +47,17 @@ class EventBusService:
         while True:
             db, event = await self._queue.get()
             try:
+                # 1. Trigger Notification Handlers
                 handlers = self._subscribers.get(event.event_type, [])
                 for handler in handlers:
                     await handler(db, event)
+                    
+                # 2. Trigger Automation Engine (Evaluates IF-THEN rules)
+                await automation_engine.process_event(db, event)
+
+                # 3. Trigger Integration Sync Engine
+                await sync_engine.process_event(db, event)
+                
             except Exception as e:
                 logger.error(f"Error processing event {event.id}: {e}")
             finally:
@@ -100,6 +111,8 @@ class NotificationService:
                 
                 # Check preferences
                 prefs = await preference_service.get_preferences(db, user_id)
+                
+                # Route to Integration SyncEngine - Handled by _worker now
                 
                 # Create notification
                 notif_in = NotificationInternalCreate(

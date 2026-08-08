@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supportgpt-backend
+  labels:
+    app: supportgpt-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: supportgpt-backend
+  template:
+    metadata:
+      labels:
+        app: supportgpt-backend
+    spec:
+      containers:
+      - name: backend
+        image: ghcr.io/your-org/supportgpt-backend:latest
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - secretRef:
+            name: supportgpt-secrets
+        - configMapRef:
+            name: supportgpt-config
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supportgpt-backend
+spec:
+  selector:
+    app: supportgpt-backend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
