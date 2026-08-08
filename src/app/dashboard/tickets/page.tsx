@@ -12,12 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Search, Filter, MoreHorizontal, ArrowUpDown } from "lucide-react";
 
-const tickets = [
-  { id: "T-1024", subject: "Password reset not working", customer: "John Smith", status: "Open", priority: "High", assignedTo: "Sarah Agent", created: "10 mins ago" },
-  { id: "T-1023", subject: "Billing issue with latest invoice", customer: "Sarah Lee", status: "In Progress", priority: "Medium", assignedTo: "Unassigned", created: "2 hours ago" },
-  { id: "T-1022", subject: "API rate limits reached", customer: "DevCorp Inc.", status: "Resolved", priority: "Low", assignedTo: "Mike Technical", created: "1 day ago" },
-  { id: "T-1021", subject: "How to invite team members", customer: "Alice Johnson", status: "Resolved", priority: "Low", assignedTo: "AI Agent", created: "2 days ago" },
-];
+import { useQuery } from "@tanstack/react-query";
+import { ticketClient } from "@/lib/api/ticket-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const getPriorityBadge = (priority: string) => {
   switch (priority) {
@@ -46,6 +43,11 @@ const getStatusBadge = (status: string) => {
 };
 
 export default function TicketsPage() {
+  const { data: tickets, isLoading } = useQuery({
+    queryKey: ["tickets-list"],
+    queryFn: ticketClient.getTickets,
+  });
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -80,33 +82,54 @@ export default function TicketsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {tickets.map((ticket) => (
-              <TableRow key={ticket.id}>
-                <TableCell className="font-mono text-xs">{ticket.id}</TableCell>
-                <TableCell className="font-medium">{ticket.subject}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Avatar className="h-6 w-6">
-                      <AvatarFallback className="text-[10px]">{ticket.customer[0]}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm">{ticket.customer}</span>
-                  </div>
-                </TableCell>
-                <TableCell>{getStatusBadge(ticket.status)}</TableCell>
-                <TableCell>{getPriorityBadge(ticket.priority)}</TableCell>
-                <TableCell>
-                  <span className={ticket.assignedTo === "Unassigned" ? "text-muted-foreground text-sm italic" : "text-sm"}>
-                    {ticket.assignedTo}
-                  </span>
-                </TableCell>
-                <TableCell className="text-muted-foreground text-sm">{ticket.created}</TableCell>
-                <TableCell>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
+            {isLoading ? (
+              Array(5).fill(0).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                  <TableCell><Skeleton className="h-6 w-24 rounded-full" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-8 w-8 rounded-full ml-auto" /></TableCell>
+                </TableRow>
+              ))
+            ) : !tickets || tickets.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  No active tickets.
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              tickets.map((ticket) => (
+                <TableRow key={ticket.id}>
+                  <TableCell className="font-mono text-xs">{ticket.id}</TableCell>
+                  <TableCell className="font-medium">{ticket.subject}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-[10px]">{ticket.customer?.[0] || '?'}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm">{ticket.customer}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{getStatusBadge(ticket.status)}</TableCell>
+                  <TableCell>{getPriorityBadge(ticket.priority)}</TableCell>
+                  <TableCell>
+                    <span className={ticket.assignedTo === "Unassigned" ? "text-muted-foreground text-sm italic" : "text-sm"}>
+                      {ticket.assignedTo}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{ticket.created}</TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>

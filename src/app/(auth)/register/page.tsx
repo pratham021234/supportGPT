@@ -7,6 +7,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuthStore } from "@/store/authStore";
+import { useMutation } from "@tanstack/react-query";
+import { authClient } from "@/lib/api/auth-client";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -27,8 +29,18 @@ const formSchema = z.object({
 
 export default function RegisterPage() {
   const router = useRouter();
-  const login = useAuthStore((state) => state.login);
-  const [isLoading, setIsLoading] = useState(false);
+
+  const registerMutation = useMutation({
+    mutationFn: authClient.register,
+    onSuccess: () => {
+      // Registration successful, redirect to login
+      alert("Registration successful! Please sign in.");
+      router.push("/login");
+    },
+    onError: (error) => {
+      alert(error.message || "Failed to register");
+    },
+  });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -40,17 +52,12 @@ export default function RegisterPage() {
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    login({
-      id: "2",
-      name: values.name,
+    registerMutation.mutate({
+      full_name: values.name,
       email: values.email,
-      role: "owner",
+      password: values.password,
+      confirm_password: values.password // Simple mapping for now
     });
-    setIsLoading(false);
-    router.push("/dashboard");
   }
 
   return (
@@ -103,8 +110,8 @@ export default function RegisterPage() {
               </FormItem>
             )}
           />
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sign up"}
+          <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
+            {registerMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sign up"}
           </Button>
         </form>
       </Form>

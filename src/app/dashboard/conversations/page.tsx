@@ -5,8 +5,16 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search, Filter, MoreVertical, Send, Bot, User, Phone, Mail, Clock, Library } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { conversationClient } from "@/lib/api/conversation-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ConversationsPage() {
+  const { data: conversations, isLoading } = useQuery({
+    queryKey: ["conversations-list"],
+    queryFn: conversationClient.getConversations,
+  });
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] gap-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
@@ -40,34 +48,53 @@ export default function ConversationsPage() {
           
           <ScrollArea className="flex-1">
             <div className="flex flex-col">
-              {[
-                { name: "John Smith", id: "#1024", query: "How do I reset my password?", status: "Active", ai: true, time: "2m" },
-                { name: "Sarah Lee", id: "#1023", query: "Billing issue with latest invoice", status: "Escalated", ai: false, time: "15m" },
-                { name: "Unknown User", id: "#1022", query: "API rate limits", status: "Active", ai: true, time: "1h" },
-              ].map((conv, i) => (
-                <div key={i} className={`p-4 border-b cursor-pointer transition-colors hover:bg-muted/50 ${i === 0 ? "bg-muted" : ""}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-sm">{conv.name}</span>
-                      <span className="text-xs text-muted-foreground">{conv.id}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">{conv.time}</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground truncate mb-2">{conv.query}</p>
-                  <div className="flex items-center gap-2">
-                    {conv.status === "Escalated" ? (
-                      <Badge variant="destructive" className="h-5 text-[10px]">Escalated</Badge>
-                    ) : (
-                      <Badge variant="outline" className="h-5 text-[10px] text-emerald-500 border-emerald-500/30">Active</Badge>
-                    )}
-                    {conv.ai && (
-                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                        <Bot className="h-3 w-3" /> AI Handling
+              {isLoading ? (
+                Array(4).fill(0).map((_, i) => (
+                  <div key={i} className="p-4 border-b">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2 w-full">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-12" />
                       </div>
-                    )}
+                      <Skeleton className="h-3 w-8" />
+                    </div>
+                    <Skeleton className="h-3 w-full mb-1" />
+                    <Skeleton className="h-3 w-2/3 mb-2" />
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-5 w-16 rounded" />
+                    </div>
                   </div>
+                ))
+              ) : !conversations || conversations.length === 0 ? (
+                <div className="p-8 text-center text-sm text-muted-foreground">
+                  No active conversations.
                 </div>
-              ))}
+              ) : (
+                conversations.map((conv, i) => (
+                  <div key={conv.id || i} className={`p-4 border-b cursor-pointer transition-colors hover:bg-muted/50 ${i === 0 ? "bg-muted" : ""}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm">{conv.name}</span>
+                        <span className="text-xs text-muted-foreground">{conv.id}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{conv.time}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate mb-2">{conv.query}</p>
+                    <div className="flex items-center gap-2">
+                      {conv.status === "Escalated" ? (
+                        <Badge variant="destructive" className="h-5 text-[10px]">Escalated</Badge>
+                      ) : (
+                        <Badge variant="outline" className="h-5 text-[10px] text-emerald-500 border-emerald-500/30">Active</Badge>
+                      )}
+                      {conv.ai && (
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
+                          <Bot className="h-3 w-3" /> AI Handling
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </ScrollArea>
         </div>

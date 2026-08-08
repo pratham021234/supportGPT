@@ -7,6 +7,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuthStore } from "@/store/authStore";
+import { useMutation } from "@tanstack/react-query";
+import { authClient } from "@/lib/api/auth-client";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -26,8 +28,19 @@ const formSchema = z.object({
 
 export default function LoginPage() {
   const router = useRouter();
-  const login = useAuthStore((state) => state.login);
-  const [isLoading, setIsLoading] = useState(false);
+  const setAuth = useAuthStore((state) => state.setAuth);
+
+  const loginMutation = useMutation({
+    mutationFn: authClient.login,
+    onSuccess: (data) => {
+      setAuth(data.user, data.access_token, data.refresh_token);
+      router.push("/dashboard");
+    },
+    onError: (error) => {
+      // Basic error alert, could use toast
+      alert(error.message || "Failed to login");
+    },
+  });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -38,17 +51,10 @@ export default function LoginPage() {
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    login({
-      id: "1",
-      name: "Admin User",
+    loginMutation.mutate({
       email: values.email,
-      role: "admin",
+      password: values.password
     });
-    setIsLoading(false);
-    router.push("/dashboard");
   }
 
   return (
@@ -93,8 +99,8 @@ export default function LoginPage() {
               </FormItem>
             )}
           />
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sign in"}
+          <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
+            {loginMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sign in"}
           </Button>
         </form>
       </Form>

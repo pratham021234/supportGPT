@@ -1,0 +1,84 @@
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Any, Optional
+from pydantic import BaseModel
+import asyncio
+import json
+
+from app.dependencies.db import get_db
+from app.dependencies.authz import require_permission
+from app.models.workspace import WorkspaceMember
+from app.services.notifications.notification_service import (
+    event_bus, notification_service, preference_service
+)
+
+router = APIRouter()
+
+class EventPublishRequest(BaseModel):
+    event_type: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+    payload: Optional[dict] = None
+
+class PreferenceUpdateRequest(BaseModel):
+    email_enabled: Optional[bool] = None
+    in_app_enabled: Optional[bool] = None
+    digest_enabled: Optional[bool] = None
+
+@router.post("/events")
+async def publish_event(
+    req: EventPublishRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_alerts")), # System level, mocked
+    db: AsyncSession = Depends(get_db)
+):
+    await event_bus.publish(
+        db, str(member.workspace_id), req.event_type, req.entity_type, req.entity_id, str(member.user_id), req.payload
+    )
+    return {"message": "Event published"}
+
+@router.get("/")
+async def get_unread_notifications(
+    member: WorkspaceMember = Depends(require_permission("view_notifications")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await notification_service.get_unread(db, str(member.user_id))
+
+@router.patch("/{id}/read")
+async def mark_notification_read(
+    id: str,
+    member: WorkspaceMember = Depends(require_permission("view_notifications")),
+    db: AsyncSession = Depends(get_db)
+):
+    notif = await notification_service.mark_as_read(db, id)
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"message": "Marked as read"}
+
+@router.get("/preferences")
+async def get_preferences(
+    member: WorkspaceMember = Depends(require_permission("view_notifications")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await preference_service.get_preferences(db, str(member.user_id))
+    
+@router.patch("/preferences")
+async def update_preferences(
+    req: PreferenceUpdateRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_notification_preferences")),
+    db: AsyncSession = Depends(get_db)
+):
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    pref = await preference_service.update_preferences(db, str(member.user_id), updates)
+    return pref
+
+# Simple websocket for notification toasts (stub)
+@router.websocket("/ws")
+async def websocket_notifications(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            # wait for messages from client, or could poll the DB.
+            data = await websocket.receive_text()
+            await websocket.send_text(json.dumps({"status": "connected"}))
+    except WebSocketDisconnect:
+        pass

@@ -4,8 +4,22 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { useQuery } from "@tanstack/react-query";
+import { widgetClient } from "@/lib/api/widget-client";
+import { billingClient } from "@/lib/api/billing-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function SettingsPage() {
+  const { data: widgetConfig, isLoading: loadingWidget } = useQuery({
+    queryKey: ["settings-widget"],
+    queryFn: widgetClient.getWidgetConfig,
+  });
+
+  const { data: billingInfo, isLoading: loadingBilling } = useQuery({
+    queryKey: ["settings-billing"],
+    queryFn: billingClient.getBillingInfo,
+  });
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -63,26 +77,36 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Primary Color</Label>
-                <div className="flex gap-2">
-                  <div className="w-8 h-8 rounded-full bg-primary ring-2 ring-offset-2 ring-primary cursor-pointer"></div>
-                  <div className="w-8 h-8 rounded-full bg-blue-500 cursor-pointer"></div>
-                  <div className="w-8 h-8 rounded-full bg-emerald-500 cursor-pointer"></div>
-                  <div className="w-8 h-8 rounded-full bg-zinc-900 cursor-pointer"></div>
+              {loadingWidget ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-32 w-full mt-4" />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="welcome">Welcome Message</Label>
-                <Input id="welcome" defaultValue="Hi there! How can I help you today?" />
-              </div>
-              <div className="space-y-2 mt-4 p-4 border rounded-md bg-muted/30">
-                <Label>Embed Code</Label>
-                <pre className="text-xs p-2 bg-muted rounded overflow-x-auto mt-2 text-muted-foreground">
-                  {`<script src="https://cdn.supportgpt.ai/widget.js" data-workspace-id="ws_12345"></script>`}
-                </pre>
-                <Button variant="outline" size="sm" className="mt-2">Copy Code</Button>
-              </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Primary Color</Label>
+                    <div className="flex gap-2">
+                      <div className="w-8 h-8 rounded-full bg-primary ring-2 ring-offset-2 ring-primary cursor-pointer"></div>
+                      <div className="w-8 h-8 rounded-full bg-blue-500 cursor-pointer"></div>
+                      <div className="w-8 h-8 rounded-full bg-emerald-500 cursor-pointer"></div>
+                      <div className="w-8 h-8 rounded-full bg-zinc-900 cursor-pointer"></div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="welcome">Welcome Message</Label>
+                    <Input id="welcome" defaultValue={widgetConfig?.welcomeMessage || "Hi there! How can I help you today?"} />
+                  </div>
+                  <div className="space-y-2 mt-4 p-4 border rounded-md bg-muted/30">
+                    <Label>Embed Code</Label>
+                    <pre className="text-xs p-2 bg-muted rounded overflow-x-auto mt-2 text-muted-foreground">
+                      {widgetConfig?.embedCode || `<script src="https://cdn.supportgpt.ai/widget.js" data-workspace-id="ws_12345"></script>`}
+                    </pre>
+                    <Button variant="outline" size="sm" className="mt-2">Copy Code</Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -96,18 +120,29 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold mb-1">$299<span className="text-lg text-muted-foreground font-normal">/mo</span></div>
-              <p className="text-sm text-muted-foreground mb-4">Renews on Sept 1, 2026</p>
-              
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>AI Conversations (8,234 / 10,000)</span>
-                  <span className="font-medium">82%</span>
+              {loadingBilling ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-12 w-32 mb-1" />
+                  <Skeleton className="h-4 w-48 mb-4" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-2 w-full rounded-full" />
                 </div>
-                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-primary w-[82%]"></div>
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="text-3xl font-bold mb-1">${billingInfo?.price || 299}<span className="text-lg text-muted-foreground font-normal">/mo</span></div>
+                  <p className="text-sm text-muted-foreground mb-4">Renews on {billingInfo?.renewalDate || 'Sept 1, 2026'}</p>
+                  
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>AI Conversations ({billingInfo?.usage?.current?.toLocaleString() || '8,234'} / {billingInfo?.usage?.limit?.toLocaleString() || '10,000'})</span>
+                      <span className="font-medium">{billingInfo ? Math.round((billingInfo.usage.current / billingInfo.usage.limit) * 100) : 82}%</span>
+                    </div>
+                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary" style={{ width: `${billingInfo ? (billingInfo.usage.current / billingInfo.usage.limit) * 100 : 82}%` }}></div>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
             <CardFooter className="border-t px-6 py-4 flex gap-2">
               <Button>Upgrade Plan</Button>

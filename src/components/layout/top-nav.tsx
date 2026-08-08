@@ -14,14 +14,32 @@ import {
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/authStore";
+import { useWebSocket } from "@/lib/websocket/use-websocket";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 
 export function TopNav() {
   const { setTheme } = useTheme();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { isConnected, messages } = useWebSocket('/notifications');
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg.type === 'NEW_TICKET' || lastMsg.type === 'NEW_CONVERSATION') {
+        setUnreadCount(prev => prev + 1);
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+        queryClient.invalidateQueries({ queryKey: ["recent-conversations"] });
+      }
+    }
+  }, [messages, queryClient]);
 
   const handleLogout = () => {
     logout();
@@ -78,11 +96,35 @@ export function TopNav() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Button variant="outline" size="icon" className="rounded-full relative">
-        <Bell className="h-5 w-5" />
-        <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive" />
-        <span className="sr-only">Toggle notifications</span>
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger>
+          <Button variant="outline" size="icon" className="rounded-full relative">
+            <Bell className="h-5 w-5" />
+            {unreadCount > 0 && (
+              <Badge variant="destructive" className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
+                {unreadCount}
+              </Badge>
+            )}
+            <span className="sr-only">Toggle notifications</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel>Notifications {isConnected ? '(Live)' : '(Offline)'}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {unreadCount === 0 ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">No new notifications</div>
+          ) : (
+            <div className="max-h-64 overflow-y-auto">
+              {messages.map((m, i) => (
+                <DropdownMenuItem key={i} className="flex flex-col items-start gap-1 p-3">
+                  <span className="font-semibold text-xs">{m.type}</span>
+                  <span className="text-xs text-muted-foreground">{JSON.stringify(m.payload)}</span>
+                </DropdownMenuItem>
+              ))}
+            </div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <DropdownMenu>
         <DropdownMenuTrigger>
           <Button variant="secondary" size="icon" className="rounded-full">

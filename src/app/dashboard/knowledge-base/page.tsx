@@ -19,13 +19,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const documents = [
-  { id: "doc_1", name: "Q3 Financial Report.pdf", type: "PDF", status: "Processed", chunks: 142, date: "2026-08-01" },
-  { id: "doc_2", name: "API Documentation", type: "URL", status: "Processed", chunks: 856, date: "2026-08-02" },
-  { id: "doc_3", name: "Employee Handbook.docx", type: "DOCX", status: "Processing", chunks: 0, date: "2026-08-06" },
-  { id: "doc_4", name: "Pricing FAQs.md", type: "Markdown", status: "Error", chunks: 0, date: "2026-08-05" },
-  { id: "doc_5", name: "Terms of Service.pdf", type: "PDF", status: "Processed", chunks: 45, date: "2026-07-28" },
-];
+import { useQuery } from "@tanstack/react-query";
+import { knowledgeClient } from "@/lib/api/knowledge-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const getStatusBadge = (status: string) => {
   switch (status) {
@@ -56,6 +52,11 @@ const getTypeIcon = (type: string) => {
 }
 
 export default function KnowledgeBasePage() {
+  const { data: documents, isLoading } = useQuery({
+    queryKey: ["knowledge-documents"],
+    queryFn: knowledgeClient.getDocuments,
+  });
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -96,39 +97,58 @@ export default function KnowledgeBasePage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {documents.map((doc) => (
-              <TableRow key={doc.id}>
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-2">
-                    {getTypeIcon(doc.type)}
-                    {doc.name}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="font-normal text-xs">{doc.type}</Badge>
-                </TableCell>
-                <TableCell>{getStatusBadge(doc.status)}</TableCell>
-                <TableCell className="text-right">{doc.chunks}</TableCell>
-                <TableCell className="text-muted-foreground">{doc.date}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <span className="sr-only">Open menu</span>
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DropdownMenuItem>View details</DropdownMenuItem>
-                      <DropdownMenuItem>Re-process</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+            {isLoading ? (
+              Array(5).fill(0).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                  <TableCell><Skeleton className="h-6 w-20" /></TableCell>
+                  <TableCell className="text-right"><Skeleton className="h-4 w-8 ml-auto" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-8 w-8 rounded-full" /></TableCell>
+                </TableRow>
+              ))
+            ) : !documents || documents.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  No documents found.
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              documents.map((doc) => (
+                <TableRow key={doc.id}>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {getTypeIcon(doc.type)}
+                      {doc.name}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="font-normal text-xs">{doc.type}</Badge>
+                  </TableCell>
+                  <TableCell>{getStatusBadge(doc.status)}</TableCell>
+                  <TableCell className="text-right">{doc.chunks}</TableCell>
+                  <TableCell className="text-muted-foreground">{doc.date}</TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        <DropdownMenuItem>View details</DropdownMenuItem>
+                        <DropdownMenuItem>Re-process</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>
