@@ -115,13 +115,7 @@ class NotificationService:
             # payload should contain assigned_to
             if event.payload and "assigned_to" in event.payload:
                 user_id = event.payload["assigned_to"]
-                
-                # Check preferences
                 prefs = await preference_service.get_preferences(db, user_id)
-                
-                # Route to Integration SyncEngine - Handled by _worker now
-                
-                # Create notification
                 notif_in = NotificationInternalCreate(
                     workspace_id=str(event.workspace_id),
                     user_id=user_id,
@@ -131,8 +125,42 @@ class NotificationService:
                     priority=NotificationPriority.MEDIUM
                 )
                 notif = await notification_repo.create(db, obj_in=notif_in)
-                
-                # Dispatch
+                if prefs.in_app_enabled:
+                    await delivery_service.dispatch_in_app(db, notif)
+                if prefs.email_enabled:
+                    await delivery_service.dispatch_email(db, notif, "mock@example.com")
+                    
+        elif event.event_type == "CONFIDENCE_LOW":
+            if event.payload and "agent_id" in event.payload and "owner_id" in event.payload:
+                user_id = event.payload["owner_id"]
+                prefs = await preference_service.get_preferences(db, user_id)
+                notif_in = NotificationInternalCreate(
+                    workspace_id=str(event.workspace_id),
+                    user_id=user_id,
+                    title="Low Confidence Alert",
+                    message=f"Agent {event.payload['agent_id']} confidence dipped below threshold.",
+                    type=NotificationType.WARNING,
+                    priority=NotificationPriority.HIGH
+                )
+                notif = await notification_repo.create(db, obj_in=notif_in)
+                if prefs.in_app_enabled:
+                    await delivery_service.dispatch_in_app(db, notif)
+                if prefs.email_enabled:
+                    await delivery_service.dispatch_email(db, notif, "mock@example.com")
+                    
+        elif event.event_type == "DOCUMENT_PROCESSED":
+            if event.payload and "owner_id" in event.payload:
+                user_id = event.payload["owner_id"]
+                prefs = await preference_service.get_preferences(db, user_id)
+                notif_in = NotificationInternalCreate(
+                    workspace_id=str(event.workspace_id),
+                    user_id=user_id,
+                    title="Knowledge Base Updated",
+                    message=f"Document {event.payload.get('document_id', '')} was successfully indexed.",
+                    type=NotificationType.SUCCESS,
+                    priority=NotificationPriority.LOW
+                )
+                notif = await notification_repo.create(db, obj_in=notif_in)
                 if prefs.in_app_enabled:
                     await delivery_service.dispatch_in_app(db, notif)
                 if prefs.email_enabled:
@@ -166,3 +194,5 @@ notification_service = NotificationService()
 
 # Register rules
 event_bus.subscribe("TICKET_ASSIGNED", notification_service.process_event)
+event_bus.subscribe("CONFIDENCE_LOW", notification_service.process_event)
+event_bus.subscribe("DOCUMENT_PROCESSED", notification_service.process_event)

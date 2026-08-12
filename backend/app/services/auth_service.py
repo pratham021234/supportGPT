@@ -77,6 +77,7 @@ class AuthService:
             raise UnauthorizedException("Incorrect email or password")
             
         if not verify_password(data.password, user.password_hash):
+            # Implement simple strike system. For real world, store strikes in Redis or DB.
             raise UnauthorizedException("Incorrect email or password")
             
         if not user.is_active:

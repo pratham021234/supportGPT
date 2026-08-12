@@ -9,7 +9,8 @@ from app.dependencies.authz import require_permission
 from app.models.workspace import WorkspaceMember
 from app.repositories.billing_repo import plan_repo, usage_record_repo, invoice_repo
 from app.services.billing.billing_service import (
-    stripe_service, subscription_service, plan_enforcement_service, usage_tracking_service
+    stripe_service, subscription_service, plan_enforcement_service, usage_tracking_service,
+    revenue_analytics_service
 )
 
 router = APIRouter()
@@ -50,6 +51,14 @@ async def create_checkout(
     url = await stripe_service.create_checkout_session(db, str(member.workspace_id), req.plan_id)
     return {"url": url}
 
+@router.post("/subscribe")
+async def subscribe(
+    req: CheckoutRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_subscriptions")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await create_checkout(req, member, db)
+
 @router.post("/customer-portal")
 async def create_customer_portal(
     member: WorkspaceMember = Depends(require_permission("manage_subscriptions")),
@@ -58,6 +67,13 @@ async def create_customer_portal(
     """Generate Stripe Customer Portal URL"""
     url = await stripe_service.create_customer_portal(db, str(member.workspace_id))
     return {"url": url}
+
+@router.post("/portal")
+async def portal(
+    member: WorkspaceMember = Depends(require_permission("manage_subscriptions")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await create_customer_portal(member, db)
 
 @router.post("/cancel")
 async def cancel_subscription(
@@ -97,6 +113,27 @@ async def log_usage_event(
         
     await usage_tracking_service.track_usage(db, str(member.workspace_id), req.metric_name, req.metric_value)
     return {"message": "Usage logged"}
+
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Ingest Stripe Webhooks"""
+    payload = await request.json()
+    await stripe_service.process_webhook(db, payload)
+    return {"status": "success"}
+    
+@router.get("/analytics")
+async def get_revenue_analytics(
+    db: AsyncSession = Depends(get_db)
+):
+    """Get global revenue metrics for admin dashboard"""
+    mrr = await revenue_analytics_service.get_mrr(db)
+    return {
+        "mrr": mrr,
+        "arr": mrr * 12
+    }
 
 # --- STRIPE WEBHOOKS ---
 

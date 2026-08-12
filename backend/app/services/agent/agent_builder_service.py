@@ -11,7 +11,7 @@ from app.models.agent import Agent, AgentStatus, AgentVisibility
 
 logger = logging.getLogger(__name__)
 
-class AgentService:
+class AgentBuilderService:
     async def create_agent(self, db: AsyncSession, workspace_id: str, user_id: str, agent_data: Dict[str, Any]) -> Agent:
         """Creates a new agent with default prompt, model config, and escalation rules."""
         
@@ -211,4 +211,4 @@ class AgentService:
         # Scopes skipped for brevity but would be deleted and re-inserted here
         return True
 
-agent_service = AgentService()
+agent_builder_service = AgentBuilderService()

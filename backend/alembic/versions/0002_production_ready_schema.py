@@ -18,7 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # 1. Add Soft Delete Columns to Core Entities
     core_tables = [
-        "users", "workspaces", "agents", "tickets", "documents",
+        "users", "workspaces", "agents", "documents",
         "billing_plans", "billing_subscriptions", "faqs",
         "knowledge_sources", "customers", "conversations"
     ]
@@ -29,9 +29,9 @@ def upgrade() -> None:
 
     # 2. Add Audit Columns (created_by, updated_by)
     audit_tables = [
-        "workspaces", "agents", "tickets", "documents",
+        "workspaces", "agents", "documents",
         "billing_subscriptions", "faqs", "knowledge_sources",
-        "conversations", "ticket_comments", "agent_versions"
+        "conversations", "agent_versions"
     ]
     for table in audit_tables:
         # Avoid adding if it already exists (e.g. agents.created_by, documents.created_by might exist)
@@ -43,10 +43,7 @@ def upgrade() -> None:
     # 3. Fix missing workspace_id for strict Tenant Isolation
     tenant_tables = [
         "agent_prompts", "agent_versions", "agent_knowledge_scopes", 
-        "agent_model_configs", "agent_escalation_rules",
-        "ticket_comments", "ticket_assignments", "ticket_activities",
-        "messages", "conversation_assignments", "conversation_events", "customer_feedback",
-        "document_pages"
+        "agent_model_configs", "agent_escalation_rules"
     ]
     for table in tenant_tables:
         op.add_column(table, sa.Column('workspace_id', postgresql.UUID(as_uuid=True), nullable=True))
@@ -55,7 +52,6 @@ def upgrade() -> None:
 
     # 4. Add Missing JSONB Columns from Phase B1
     op.add_column("workspaces", sa.Column("settings", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.add_column("messages", sa.Column("metadata", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
 
     # 5. Missing Indexes
     op.create_index('ix_users_email', 'users', ['email'])

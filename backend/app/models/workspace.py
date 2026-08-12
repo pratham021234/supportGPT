@@ -19,8 +19,10 @@ class Workspace(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     plan = Column(String(50), nullable=False, default="free")
     is_active = Column(Boolean, default=True)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    # organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     settings = Column(JSONB, nullable=True, default={})
 
+    # organization = relationship("Organization", back_populates="workspaces")
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
     invitations = relationship("WorkspaceInvitation", back_populates="workspace", cascade="all, delete-orphan")
     audit_logs = relationship("WorkspaceAuditLog", back_populates="workspace", cascade="all, delete-orphan")

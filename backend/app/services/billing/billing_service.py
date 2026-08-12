@@ -146,7 +146,70 @@ class SubscriptionService:
     async def get_subscription(self, db: AsyncSession, workspace_id: str) -> Optional[Subscription]:
         return await subscription_repo.get_by_workspace(db, workspace_id)
 
+class PlanService:
+    async def seed_default_plans(self, db: AsyncSession):
+        plans_data = [
+            {
+                "name": "Free",
+                "monthly_price": 0.0,
+                "limits": {"agents": 1, "conversations": 100, "documents": 10},
+                "features": []
+            },
+            {
+                "name": "Pro",
+                "monthly_price": 49.0,
+                "limits": {"agents": 5, "conversations": 5000, "documents": 500},
+                "features": ["advanced_analytics"]
+            },
+            {
+                "name": "Business",
+                "monthly_price": 199.0,
+                "limits": {"agents": 999999, "conversations": 50000, "documents": 5000},
+                "features": ["advanced_analytics", "priority_support"]
+            },
+            {
+                "name": "Enterprise",
+                "monthly_price": 999.0,
+                "limits": {"agents": 999999, "conversations": 999999, "documents": 999999},
+                "features": ["advanced_analytics", "priority_support", "sso", "custom_models"]
+            }
+        ]
+        
+        for p_data in plans_data:
+            # Upsert logic normally goes here, we'll mock creation
+            plan = Plan(**p_data)
+            db.add(plan)
+        await db.commit()
+
+class FeatureGateService:
+    async def has_feature(self, db: AsyncSession, workspace_id: str, feature_key: str) -> bool:
+        sub = await subscription_repo.get_by_workspace(db, workspace_id)
+        if not sub:
+            return False
+        plan = await plan_repo.get(db, id=str(sub.plan_id))
+        if not plan:
+            return False
+        return feature_key in plan.features
+
+class RevenueAnalyticsService:
+    async def get_mrr(self, db: AsyncSession) -> float:
+        # Simplistic MRR sum based on active subscriptions
+        stmt = select(Subscription, Plan).join(Plan, Subscription.plan_id == Plan.id).where(Subscription.status == SubscriptionStatus.ACTIVE)
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        mrr = 0.0
+        for sub, plan in rows:
+            if sub.billing_cycle == BillingCycle.MONTHLY:
+                mrr += plan.monthly_price
+            else:
+                mrr += (plan.annual_price / 12)
+        return mrr
+
 stripe_service = StripeService()
 usage_tracking_service = UsageTrackingService()
 plan_enforcement_service = PlanEnforcementService()
 subscription_service = SubscriptionService()
+plan_service = PlanService()
+feature_gate_service = FeatureGateService()
+revenue_analytics_service = RevenueAnalyticsService()

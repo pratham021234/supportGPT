@@ -10,7 +10,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-class AgentRouter:
+class MultiAgentRouter:
     def __init__(self):
         if settings.GEMINI_API_KEY:
             genai.configure(api_key=settings.GEMINI_API_KEY)
@@ -70,4 +70,4 @@ class AgentRouter:
         # Fallback to the first available
         return active_agents[0]
 
-agent_router = AgentRouter()
+multi_agent_router = MultiAgentRouter()

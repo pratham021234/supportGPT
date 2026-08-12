@@ -45,7 +45,16 @@ class WidgetSessionService:
             customer_id=customer_id,
             session_token=session_token
         )
-        return await widget_session_repo.create(db, obj_in=session_in)
+        session = await widget_session_repo.create(db, obj_in=session_in)
+        
+        # Log analytics
+        from app.services.analytics.analytics_service import analytics_event_service
+        import asyncio
+        asyncio.create_task(analytics_event_service.log_event(
+            db, workspace_id, "WIDGET_OPENED", "WIDGET_SESSION", str(session.id)
+        ))
+        
+        return session
         
     async def get_session(self, db: AsyncSession, session_token: str) -> Optional[WidgetSession]:
         return await widget_session_repo.get_by_token(db, session_token)

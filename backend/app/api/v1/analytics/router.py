@@ -47,6 +47,14 @@ async def get_dashboard(
     metrics = await metrics_service.get_dashboard_metrics(db, str(member.workspace_id), time_range)
     return metrics
 
+@router.get("/overview")
+async def get_overview(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await get_dashboard(time_range, member, db)
+
 @router.get("/volume")
 async def get_volume(
     time_range: Optional[str] = "7d",
@@ -54,6 +62,14 @@ async def get_volume(
     db: AsyncSession = Depends(get_db)
 ):
     return await metrics_service.get_volume_metrics(db, str(member.workspace_id), time_range)
+
+@router.get("/conversations")
+async def get_conversations(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await get_volume(time_range, member, db)
 
 @router.get("/resolution")
 async def get_resolution(
@@ -71,6 +87,14 @@ async def get_escalations(
 ):
     return await metrics_service.get_escalation_metrics(db, str(member.workspace_id), time_range)
 
+@router.get("/tickets")
+async def get_tickets(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await get_escalations(time_range, member, db)
+
 @router.get("/system-status")
 async def get_system_status(
     member: WorkspaceMember = Depends(require_permission("view_analytics")),
@@ -83,6 +107,13 @@ async def get_agents_summary(
     db: AsyncSession = Depends(get_db)
 ):
     return await metrics_service.get_agent_summary(db, str(member.workspace_id))
+
+@router.get("/agents")
+async def get_agents(
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await get_agents_summary(member, db)
 
 @router.get("/top-questions")
 async def get_top_questions(
@@ -113,6 +144,18 @@ async def get_most_referenced_documents(
 ):
     return await knowledge_intelligence.get_most_referenced_documents(db, str(member.workspace_id))
 
+@router.get("/knowledge")
+async def get_knowledge(
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    gaps = await knowledge_gap_service.get_gaps(db, str(member.workspace_id))
+    most_ref = await knowledge_intelligence.get_most_referenced_documents(db, str(member.workspace_id))
+    return {
+        "most_referenced": most_ref,
+        "gaps": gaps
+    }
+
 @router.get("/insights")
 async def get_business_insights(
     member: WorkspaceMember = Depends(require_permission("view_analytics")),
@@ -127,6 +170,18 @@ async def get_costs(
 ):
     total = await cost_service.get_total_cost(db, str(member.workspace_id))
     return {"total_estimated_cost_usd": total}
+
+@router.get("/workspace")
+async def get_workspace(
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    system = await metrics_service.get_system_status()
+    total = await cost_service.get_total_cost(db, str(member.workspace_id))
+    return {
+        "status": system,
+        "total_estimated_cost_usd": total
+    }
 
 @router.post("/reports/export")
 async def export_report(
@@ -144,6 +199,14 @@ async def export_report(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={req.report_type.lower()}_export.csv"}
     )
+
+@router.post("/reports")
+async def generate_report(
+    req: ReportExportRequest,
+    member: WorkspaceMember = Depends(require_permission("export_reports")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await export_report(req, member, db)
 
 # Active realtime dashboard connections
 _realtime_connections = {}

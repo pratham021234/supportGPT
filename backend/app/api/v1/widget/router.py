@@ -23,6 +23,10 @@ class SessionInitRequest(BaseModel):
 class ConversationStartRequest(BaseModel):
     session_token: str
 
+class WidgetMessageRequest(BaseModel):
+    session_token: str
+    content: str
+
 class ConfigurationUpdateRequest(BaseModel):
     theme: Optional[str] = None
     primary_color: Optional[str] = None
@@ -101,6 +105,45 @@ async def start_conversation(
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
+@router.post("/message")
+async def send_widget_message(
+    req: WidgetMessageRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Anonymous message endpoint for widget SDK."""
+    session = await widget_session_service.get_session(db, req.session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+        
+    from app.services.conversation.message_service import message_service
+    # Needs a conversation to be started
+    # For MVP, we auto-start if no active conversation is mapped in session. 
+    # But WidgetSession doesn't store active conversation ID, so we query it via customer_id.
+    from app.repositories.conversation_repo import conversation_repo
+    convs = await conversation_repo.get_by_workspace(db, str(session.workspace_id))
+    # Filter by customer_id
+    active_conv = next((c for c in convs if str(c.customer_id) == str(session.customer_id)), None)
+    
+    if not active_conv:
+        conv_id = await widget_session_service.start_conversation(db, req.session_token)
+        active_conv = await conversation_repo.get(db, id=conv_id)
+        
+    # Send message as Customer
+    # In a full impl, this would trigger RAG agent workflow. We mock a reply here for widget SDK demo.
+    reply_text = f"Received your message: {req.content}. Our agents will be right with you."
+    
+    return {"reply": reply_text}
+
+@router.get("/history/{session_token}")
+async def get_widget_history(
+    session_token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    session = await widget_session_service.get_session(db, session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    return {"messages": []} # Mock empty history
+
 # --- ADMIN ROUTES ---
 
 @router.get("/settings")
@@ -122,3 +165,29 @@ async def update_settings(
     updates = {k: v for k, v in req.dict().items() if v is not None}
     config = await widget_config_service.update_configuration(db, str(member.workspace_id), updates)
     return config
+
+@router.get("/embed-code")
+async def get_embed_code(
+    member: WorkspaceMember = Depends(require_permission("configure_widget")),
+    db: AsyncSession = Depends(get_db)
+):
+    config = await widget_config_service.get_or_create_workspace_config(db, str(member.workspace_id))
+    agent_id = str(config.agent_id) if config.agent_id else "DEFAULT_AGENT"
+    
+    script = f"""
+<!-- SupportGPT Widget -->
+<script>
+window.SupportGPT = {{
+    workspaceId: "{member.workspace_id}",
+    agentId: "{agent_id}"
+}};
+</script>
+<script src="https://cdn.supportgpt.ai/widget.js" async defer></script>
+<!-- End SupportGPT Widget -->
+"""
+    return {"embed_code": script.strip()}
+
+@router.get("/health")
+async def get_widget_health():
+    from app.services.widget.widget_health_service import widget_health_service
+    return widget_health_service.get_widget_health()

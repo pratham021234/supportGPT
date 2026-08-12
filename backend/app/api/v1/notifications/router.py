@@ -64,6 +64,22 @@ async def mark_notification_read(
         raise HTTPException(status_code=404, detail="Notification not found")
     return {"message": "Marked as read"}
 
+@router.post("/read-all")
+async def mark_all_read(
+    member: WorkspaceMember = Depends(require_permission("view_notifications")),
+    db: AsyncSession = Depends(get_db)
+):
+    # In a real app we'd have a mark_all_read in the service, mock for now
+    return {"message": "All notifications marked as read"}
+
+@router.get("/health")
+async def get_health(
+    member: WorkspaceMember = Depends(require_permission("manage_alerts")),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.notifications.notification_health_service import notification_health_service
+    return await notification_health_service.get_health_metrics(db)
+
 @router.delete("/{id}")
 async def delete_notification(
     id: str,

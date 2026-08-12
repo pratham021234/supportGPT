@@ -3,7 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from typing import Dict, Any
 from app.dependencies import get_db, get_current_active_user, require_owner
-from app.services import auth_service
+from app.dependencies.rate_limit import FastAPILimiter
+from fastapi_limiter.depends import RateLimiter
+from app.services import auth_service, session_service
 from app.schemas import (
     RegisterRequest,
     LoginRequest,
@@ -20,7 +22,7 @@ from app.models.user import User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=Dict[str, Any])
+@router.post("/register", response_model=Dict[str, Any], dependencies=[Depends(RateLimiter(times=5, seconds=60))])
 async def register(
     request: RegisterRequest,
     db: AsyncSession = Depends(get_db)
@@ -34,7 +36,7 @@ async def register(
     }
 
 
-@router.post("/login", response_model=Dict[str, Any])
+@router.post("/login", response_model=Dict[str, Any], dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 async def login(
     request: Request,
     login_data: LoginRequest,
@@ -140,7 +142,7 @@ async def verify_email(
     }
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", dependencies=[Depends(RateLimiter(times=3, seconds=60))])
 async def forgot_password(
     request: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db)
@@ -158,17 +160,12 @@ async def reset_password(
     request: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    await auth_service.reset_password(
-        db,
-        request.token,
-        request.new_password
-    )
+    await auth_service.reset_password(db, request.token, request.new_password)
 
     return {
         "success": True,
-        "message": "Password has been successfully reset."
+        "message": "Password reset successfully"
     }
-
 
 @router.post("/change-password")
 async def change_password(

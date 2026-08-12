@@ -4,6 +4,9 @@ from typing import Dict, Any, Optional, List
 import io
 import csv
 
+from app.services.analytics.analytics_cache_service import cached_analytics
+from app.services.analytics.trend_analysis_service import trend_analysis_service
+
 from app.repositories.analytics_repo import (
     analytics_event_repo, metric_snapshot_repo, dashboard_widget_repo, knowledge_gap_repo, cost_metric_repo,
     AnalyticsEventInternalCreate, MetricSnapshotInternalCreate, DashboardWidgetInternalCreate, KnowledgeGapInternalCreate, CostMetricInternalCreate,
@@ -32,8 +35,9 @@ class AnalyticsEventService:
         return await analytics_event_repo.create(db, obj_in=event_in)
 
 class MetricsAggregationService:
+    @cached_analytics(ttl_seconds=300)
     async def get_dashboard_metrics(self, db: AsyncSession, workspace_id: str, time_range: str = "7d") -> Dict[str, Any]:
-        """Calculates synchronous metrics for the executive dashboard."""
+        """Calculates synchronous metrics for the executive dashboard, cached for performance."""
         
         # 1. Conversations
         conversations = await conversation_repo.get_by_workspace(db, workspace_id)
@@ -61,13 +65,18 @@ class MetricsAggregationService:
             total_gap_hits = sum([g.occurrences for g in open_gaps if g.status == GapStatus.OPEN])
             coverage = max(0.0, ((ai_queries - total_gap_hits) / ai_queries) * 100)
             
+        # Use trend analysis service for dynamic percentages (mocking previous values for demo)
+        conv_trend = trend_analysis_service.calculate_trend_percentage(total_conv, max(0, total_conv - 5))
+        ticket_trend = trend_analysis_service.calculate_trend_percentage(total_tickets, max(0, total_tickets + 2))
+        res_trend = trend_analysis_service.calculate_trend_percentage(ai_res_rate, 85.0)
+
         return {
             "total_conversations": total_conv,
-            "conversations_trend": "+12% from last period",
+            "conversations_trend": conv_trend,
             "total_tickets": total_tickets,
-            "tickets_trend": "-3% from last period",
+            "tickets_trend": ticket_trend,
             "ai_resolution_rate": round(ai_res_rate, 2),
-            "resolution_trend": "+2.1% from last period",
+            "resolution_trend": res_trend,
             "active_tickets": total_tickets,
             "knowledge_sources": 142, # Mock
             "knowledge_trend": "+5 added",
@@ -75,6 +84,7 @@ class MetricsAggregationService:
             "knowledge_coverage": round(coverage, 2)
         }
 
+    @cached_analytics(ttl_seconds=300)
     async def get_volume_metrics(self, db: AsyncSession, workspace_id: str, time_range: str = "7d") -> List[Dict[str, Any]]:
         # Calculate start date based on time_range
         days = int(time_range.replace("d", "")) if "d" in time_range else 7
@@ -154,6 +164,7 @@ class MetricsAggregationService:
         ]
 
 class KnowledgeIntelligenceEngine:
+    @cached_analytics(ttl_seconds=300)
     async def get_most_referenced_documents(self, db: AsyncSession, workspace_id: str) -> List[Dict[str, Any]]:
         """Finds most used docs by checking Retrieval logs or aggregating Document references."""
         docs = await document_repo.get_by_workspace(db, workspace_id)

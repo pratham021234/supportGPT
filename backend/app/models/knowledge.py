@@ -17,11 +17,14 @@ class SourceType(str, enum.Enum):
     ARTICLE = "ARTICLE"
 
 class DocumentStatus(str, enum.Enum):
+    PENDING = "PENDING"
     UPLOADED = "UPLOADED"
     PROCESSING = "PROCESSING"
+    INDEXING = "INDEXING"
     READY = "READY"
     FAILED = "FAILED"
     ARCHIVED = "ARCHIVED"
+    DELETED = "DELETED"
 
 class KnowledgeSource(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "knowledge_sources"
@@ -48,8 +51,15 @@ class Document(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     file_size = Column(Integer, nullable=True)
     storage_path = Column(Text, nullable=True)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.UPLOADED, nullable=False)
+    processing_status = Column(String(50), default="PENDING", nullable=True)
     language = Column(String(10), default="en")
     version = Column(Integer, default=1)
+    page_count = Column(Integer, default=0)
+    chunk_count = Column(Integer, default=0)
+    checksum = Column(String(255), nullable=True, index=True)
+    last_processed_at = Column(DateTime(timezone=True), nullable=True)
+    metadata_ = Column("metadata", JSONB, nullable=True)
+    original_filename = Column(String(500), nullable=True)
     
     # Track versioning (self-referential)
     previous_version_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
@@ -64,6 +74,8 @@ class Document(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     creator = relationship("User", foreign_keys="[Document.created_by]")
     pages = relationship("DocumentPage", back_populates="document", cascade="all, delete-orphan")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    versions = relationship("DocumentVersion", back_populates="document", cascade="all, delete-orphan")
+    activities = relationship("DocumentActivity", back_populates="document", cascade="all, delete-orphan")
     
     # Document tags mapping
     tags = relationship("KnowledgeTag", secondary="document_tags", back_populates="documents")
@@ -127,3 +139,34 @@ class DocumentTag(Base):
 
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
     tag_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_tags.id", ondelete="CASCADE"), primary_key=True)
+
+class DocumentVersion(Base, TimestampMixin, AuditMixin):
+    __tablename__ = "document_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    version_number = Column(Integer, nullable=False)
+    storage_path = Column(Text, nullable=True)
+    checksum = Column(String(255), nullable=True, index=True)
+    file_size = Column(Integer, nullable=True)
+    metadata_ = Column("metadata", JSONB, nullable=True)
+
+    document = relationship("Document", back_populates="versions")
+    workspace = relationship("Workspace")
+
+class DocumentActivity(Base, TimestampMixin):
+    __tablename__ = "document_activities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    activity_type = Column(String(50), nullable=False) # e.g. UPLOAD, EDIT, DELETE, RESTORE, REPROCESS, VERSION_UPLOAD
+    details = Column(JSONB, nullable=True)
+
+    document = relationship("Document", back_populates="activities")
+    workspace = relationship("Workspace")
+    user = relationship("User")

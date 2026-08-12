@@ -9,6 +9,12 @@ class EmailService:
         resend.api_key = settings.RESEND_API_KEY
 
     async def send_email(self, to_email: str, subject: str, html_body: str):
+        # Enqueue to background task simulating Celery
+        import asyncio
+        asyncio.create_task(self._send_email_task(to_email, subject, html_body))
+        return True
+
+    async def _send_email_task(self, to_email: str, subject: str, html_body: str):
         if not settings.RESEND_API_KEY:
             logger.warning(f"Mocking email to {to_email}. Subject: {subject}")
             logger.warning(f"Body: {html_body}")
