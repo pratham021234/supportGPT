@@ -6,6 +6,7 @@ from app.dependencies.db import get_db
 from app.dependencies.authz import require_permission
 from app.models.workspace import WorkspaceMember
 from app.schemas.knowledge import FAQCreate, FAQUpdate, FAQResponse
+from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 from app.services.knowledge_service import knowledge_service
 
 router = APIRouter()
@@ -18,14 +19,14 @@ async def create_faq(
 ):
     return await knowledge_service.create_faq(db, str(member.workspace_id), str(member.user_id), obj_in)
 
-@router.get("/", response_model=List[FAQResponse])
+@router.get("/", response_model=PaginatedResponse[FAQResponse])
 async def list_faqs(
-    skip: int = 0,
-    limit: int = 100,
+    pagination: PaginationParams = Depends(),
+    filters: FilterParams = Depends(),
     member: WorkspaceMember = Depends(require_permission("knowledge:read")),
     db: AsyncSession = Depends(get_db)
 ):
-    return await knowledge_service.get_workspace_faqs(db, str(member.workspace_id), skip, limit)
+    return await knowledge_service.get_workspace_faqs_paginated(db, str(member.workspace_id), pagination, filters)
 
 @router.patch("/{faq_id}", response_model=FAQResponse)
 async def update_faq(

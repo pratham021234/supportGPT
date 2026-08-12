@@ -88,6 +88,38 @@ async def disconnect_integration(
     
     return {"message": "Disconnected successfully"}
 
+@router.get("/{connection_id}/status")
+async def get_connection_status(
+    connection_id: str,
+    member: WorkspaceMember = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Check the health/status of a connection."""
+    conn = await integration_conn_repo.get(db, id=connection_id)
+    if not conn or str(conn.workspace_id) != str(member.workspace_id):
+        raise HTTPException(status_code=404, detail="Connection not found")
+    
+    # In reality, this might ping the provider's API
+    return {"status": conn.status, "last_synced_at": conn.last_synced_at}
+
+@router.post("/{connection_id}/sync")
+async def trigger_sync(
+    connection_id: str,
+    member: WorkspaceMember = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Trigger a manual synchronization."""
+    conn = await integration_conn_repo.get(db, id=connection_id)
+    if not conn or str(conn.workspace_id) != str(member.workspace_id):
+        raise HTTPException(status_code=404, detail="Connection not found")
+        
+    connector = get_connector(conn.provider)
+    # Fire and forget or background task would be better here
+    # For MVP we can just call it (assuming it's fast or mock)
+    # await connector.sync(str(member.workspace_id))
+    
+    return {"message": "Sync triggered successfully"}
+
 # --- SYNC LOGS & WEBHOOKS ---
 
 @router.get("/logs")

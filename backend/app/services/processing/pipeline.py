@@ -14,6 +14,7 @@ from app.services.extractors.cleaner import TextCleaner
 from app.services.extractors.lang_detect import LanguageDetector
 from app.services.extractors.crawler import website_crawler
 from app.services.processing.chunker import semantic_chunker
+from app.services.processing.metadata import metadata_service
 from app.core.database import async_session_maker
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,11 @@ class DocumentProcessingService:
             job = await processing_job_repo.get(db, id=job_id)
             if not job:
                 logger.error(f"Processing job {job_id} not found.")
+                return
+            
+            doc = await document_repo.get(db, id=document_id)
+            if not doc:
+                logger.error(f"Document {document_id} not found.")
                 return
 
             try:
@@ -70,11 +76,31 @@ class DocumentProcessingService:
                 await processing_job_repo.update(db, db_obj=job, obj_in={"progress": 80})
 
                 # 4. Chunking
-                base_metadata = {
-                    "source_type": source_type,
-                    "language": lang
-                }
-                chunks = semantic_chunker.chunk_text(cleaned_text, base_metadata)
+                base_metadata = metadata_service.generate_document_metadata(
+                    file_name=doc.file_name if 'doc' in locals() and doc else "Unknown",
+                    source_type=source_type,
+                    workspace_id=workspace_id,
+                    language=lang,
+                    page_count=page_count,
+                    extra_meta=metadata
+                )
+                
+                # Fetch settings for chunking (fallback to defaults if not provided in doc metadata)
+                chunk_strategy = "PARAGRAPH"
+                max_tokens = 1000
+                overlap = 200
+                if doc and doc.metadata_:
+                    chunk_strategy = doc.metadata_.get("chunk_strategy", chunk_strategy)
+                    max_tokens = int(doc.metadata_.get("chunk_size", max_tokens))
+                    overlap = int(doc.metadata_.get("chunk_overlap", overlap))
+
+                chunks = semantic_chunker.chunk_text(
+                    cleaned_text, 
+                    base_metadata, 
+                    strategy=chunk_strategy,
+                    max_tokens=max_tokens,
+                    overlap=overlap
+                )
                 
                 # Save Chunks
                 for chunk_result in chunks:
@@ -165,11 +191,31 @@ class DocumentProcessingService:
                 await extraction_result_repo.create(db, obj_in=extraction_in)
                 await processing_job_repo.update(db, db_obj=job, obj_in={"progress": 80})
 
-                base_metadata = {
-                    "source_type": "WEBSITE",
-                    "language": lang
-                }
-                chunks = semantic_chunker.chunk_text(cleaned_text, base_metadata)
+                doc = await document_repo.get(db, id=document_id)
+                base_metadata = metadata_service.generate_document_metadata(
+                    file_name=url,
+                    source_type="WEBSITE",
+                    workspace_id=workspace_id,
+                    language=lang,
+                    page_count=page_count,
+                    extra_meta=metadata
+                )
+                
+                chunk_strategy = "PARAGRAPH"
+                max_tokens = 1000
+                overlap = 200
+                if doc and doc.metadata_:
+                    chunk_strategy = doc.metadata_.get("chunk_strategy", chunk_strategy)
+                    max_tokens = int(doc.metadata_.get("chunk_size", max_tokens))
+                    overlap = int(doc.metadata_.get("chunk_overlap", overlap))
+
+                chunks = semantic_chunker.chunk_text(
+                    cleaned_text, 
+                    base_metadata, 
+                    strategy=chunk_strategy,
+                    max_tokens=max_tokens,
+                    overlap=overlap
+                )
                 
                 for chunk_result in chunks:
                     chunk = DocumentChunk(

@@ -29,6 +29,9 @@ class TicketService:
         
         return ticket
         
+    async def get_workspace_tickets_paginated(self, db: AsyncSession, workspace_id: str, pagination: Any, filters: Any):
+        return await ticket_repo.get_paginated(db, pagination=pagination, filters=filters, workspace_id=workspace_id)
+
     async def get_workspace_tickets(self, db: AsyncSession, workspace_id: str):
         return await ticket_repo.get_by_workspace(db, workspace_id=workspace_id)
 
@@ -57,6 +60,31 @@ class TicketService:
         await ticket_activity_repo.create(db, obj_in=activity_in)
         
         return updated_ticket
+
+    async def update_ticket(self, db: AsyncSession, ticket_id: str, update_data: Dict[str, Any], actor_id: str) -> Optional[Ticket]:
+        ticket = await ticket_repo.get(db, id=ticket_id)
+        if not ticket:
+            return None
+            
+        updated_ticket = await ticket_repo.update(db, db_obj=ticket, obj_in=update_data)
+        
+        activity_in = TicketActivityInternalCreate(
+            ticket_id=ticket_id,
+            actor_id=actor_id,
+            action="TICKET_UPDATED",
+            metadata_=update_data
+        )
+        await ticket_activity_repo.create(db, obj_in=activity_in)
+        
+        return updated_ticket
+
+    async def delete_ticket(self, db: AsyncSession, ticket_id: str) -> bool:
+        ticket = await ticket_repo.get(db, id=ticket_id)
+        if not ticket:
+            return False
+            
+        await ticket_repo.remove(db, id=ticket_id)
+        return True
 
     async def assign_ticket(self, db: AsyncSession, ticket_id: str, assigned_user_id: str, actor_id: str) -> Optional[Ticket]:
         ticket = await ticket_repo.get(db, id=ticket_id)

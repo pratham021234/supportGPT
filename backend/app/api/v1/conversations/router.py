@@ -6,12 +6,16 @@ from pydantic import BaseModel
 from app.dependencies.db import get_db
 from app.dependencies.authz import require_permission
 from app.models.workspace import WorkspaceMember
-from app.models.conversation import ConversationStatus
+from app.models.conversation import ConversationStatus, SenderType, MessageType
 from app.services.messaging.conversation_service import conversation_service, customer_service
 from app.services.messaging.realtime_service import realtime_messaging_service
-from app.services.handoff.handoff_service import handoff_service
-from app.services.ticketing.ticket_service import ticket_service
-from app.models.conversation import SenderType, MessageType
+from app.services.messaging.websocket_manager import websocket_manager
+from app.services.messaging.conversation_engine import conversation_engine
+from app.services.messaging.message_service import message_service
+from app.services.messaging.conversation_search_service import conversation_search_service
+from app.services.handoff.human_handoff_service import human_handoff_service
+from app.services.ticketing.ticket_creation_service import ticket_creation_service
+from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 import json
 
 router = APIRouter()
@@ -28,6 +32,7 @@ class MessageCreateRequest(BaseModel):
     content: str
     message_type: MessageType = MessageType.TEXT
     is_internal: bool = False
+    metadata_: Optional[dict] = None
 
 class ConversationAssignRequest(BaseModel):
     assigned_user_id: str
@@ -39,6 +44,9 @@ class FeedbackCreateRequest(BaseModel):
     is_helpful: Optional[bool] = None
     rating: Optional[int] = None
     comment: Optional[str] = None
+
+class TagCreateRequest(BaseModel):
+    tag: str
 
 @router.post("/customers")
 async def create_or_get_customer(
@@ -60,7 +68,7 @@ async def create_conversation(
     member: WorkspaceMember = Depends(require_permission("manage_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    conv = await conversation_service.create_conversation(
+    conv = await conversation_engine.create_conversation(
         db=db,
         workspace_id=str(member.workspace_id),
         customer_id=req.customer_id,
@@ -68,19 +76,27 @@ async def create_conversation(
     )
     return conv
 
-@router.get("")
+@router.get("", response_model=PaginatedResponse[Any])
 async def list_conversations(
-    status: Optional[ConversationStatus] = None,
-    assigned_user_id: Optional[str] = None,
+    pagination: PaginationParams = Depends(),
+    filters: FilterParams = Depends(),
     member: WorkspaceMember = Depends(require_permission("view_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    return await conversation_service.get_workspace_conversations(
+    return await conversation_service.get_workspace_conversations_paginated(
         db, 
         str(member.workspace_id),
-        status=status,
-        assigned_user_id=assigned_user_id
+        pagination,
+        filters
     )
+
+@router.get("/search")
+async def search_conversations(
+    query: str,
+    member: WorkspaceMember = Depends(require_permission("view_conversations")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await conversation_search_service.search_conversations(db, str(member.workspace_id), query)
 
 @router.get("/{conversation_id}")
 async def get_conversation(
@@ -99,7 +115,7 @@ async def get_conversation_messages(
     member: WorkspaceMember = Depends(require_permission("view_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    messages = await conversation_service.get_messages(db, conversation_id)
+    messages = await message_service.get_messages(db, conversation_id)
     return messages
 
 @router.post("/{conversation_id}/message")
@@ -109,23 +125,23 @@ async def add_manual_message(
     member: WorkspaceMember = Depends(require_permission("manage_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    # Depending on internal flag we either send as SYSTEM or SUPPORT_AGENT
     sender = SenderType.SYSTEM if req.is_internal else SenderType.SUPPORT_AGENT
-    msg = await conversation_service.add_message(
+    msg = await message_service.store_message(
         db=db,
         conversation_id=conversation_id,
         sender_type=sender,
         content=req.content,
         sender_id=str(member.user_id),
-        message_type=req.message_type
+        message_type=req.message_type,
+        metadata_=req.metadata_
     )
     
-    # Broadcast to WS
-    await realtime_messaging_service.manager.broadcast_to_conversation(conversation_id, {
+    await websocket_manager.broadcast_to_channel("chat", conversation_id, {
         "type": "message",
         "sender": sender.value,
         "content": req.content,
-        "is_internal": req.is_internal
+        "is_internal": req.is_internal,
+        "metadata": req.metadata_
     })
     
     return msg
@@ -137,11 +153,11 @@ async def assign_conversation(
     member: WorkspaceMember = Depends(require_permission("manage_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    conv = await conversation_service.assign_conversation(db, conversation_id, req.assigned_user_id)
+    conv = await conversation_engine.transfer_conversation(db, conversation_id, req.assigned_user_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
         
-    await realtime_messaging_service.manager.broadcast_to_conversation(conversation_id, {
+    await websocket_manager.broadcast_to_channel("chat", conversation_id, {
         "type": "system_event",
         "content": "Conversation assigned to a new agent."
     })
@@ -159,30 +175,19 @@ async def escalate_conversation(
     if not conv:
         raise HTTPException(404, "Conversation not found")
         
-    await conversation_service.update_status(db, conversation_id, ConversationStatus.ESCALATED)
-    
-    await handoff_service.initiate_handoff(
+    await human_handoff_service.trigger_handoff(
         db=db,
         conversation_id=conversation_id,
-        from_agent_id=str(conv.agent_id) if conv.agent_id else None,
-        to_user_id=None,
         reason=req.reason,
-        initiated_by=str(member.user_id)
+        initiated_by=str(member.user_id),
+        from_agent_id=str(conv.agent_id) if conv.agent_id else None
     )
     
-    ticket = await ticket_service.create_ai_escalation(
-        db=db,
-        workspace_id=str(conv.workspace_id),
-        conversation_id=conversation_id,
-        customer_id=str(conv.customer_id),
-        reason=req.reason
-    )
-    
-    await realtime_messaging_service.manager.broadcast_to_conversation(conversation_id, {
+    await websocket_manager.broadcast_to_channel("chat", conversation_id, {
         "type": "system_event",
         "content": "Conversation escalated."
     })
-    return {"status": "Escalated", "ticket_id": str(ticket.id)}
+    return {"status": "Escalated"}
 
 @router.post("/{conversation_id}/resolve")
 async def resolve_conversation(
@@ -190,11 +195,11 @@ async def resolve_conversation(
     member: WorkspaceMember = Depends(require_permission("manage_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    conv = await conversation_service.update_status(db, conversation_id, ConversationStatus.RESOLVED)
+    conv = await conversation_engine.update_conversation(db, conversation_id, {"status": ConversationStatus.RESOLVED})
     if not conv:
         raise HTTPException(404, "Conversation not found")
         
-    await realtime_messaging_service.manager.broadcast_to_conversation(conversation_id, {
+    await websocket_manager.broadcast_to_channel("chat", conversation_id, {
         "type": "system_event",
         "content": "Conversation marked as resolved."
     })
@@ -206,21 +211,44 @@ async def close_conversation(
     member: WorkspaceMember = Depends(require_permission("manage_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    conv = await conversation_service.update_status(db, conversation_id, ConversationStatus.CLOSED)
+    conv = await conversation_engine.close_conversation(db, conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
         
-    await realtime_messaging_service.manager.broadcast_to_conversation(conversation_id, {
+    await websocket_manager.broadcast_to_channel("chat", conversation_id, {
         "type": "system_event",
         "content": "Conversation closed."
     })
+    return conv
+
+@router.post("/{conversation_id}/archive")
+async def archive_conversation(
+    conversation_id: str,
+    member: WorkspaceMember = Depends(require_permission("manage_conversations")),
+    db: AsyncSession = Depends(get_db)
+):
+    conv = await conversation_engine.archive_conversation(db, conversation_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    return conv
+
+@router.post("/{conversation_id}/tags")
+async def tag_conversation(
+    conversation_id: str,
+    req: TagCreateRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_conversations")),
+    db: AsyncSession = Depends(get_db)
+):
+    conv = await conversation_service.add_tag(db, conversation_id, req.tag)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
     return conv
 
 @router.post("/{conversation_id}/feedback")
 async def submit_feedback(
     conversation_id: str,
     req: FeedbackCreateRequest,
-    member: WorkspaceMember = Depends(require_permission("view_conversations")), # In reality this would be public/customer scoped
+    member: WorkspaceMember = Depends(require_permission("view_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
     fb = await conversation_service.add_feedback(
@@ -234,19 +262,11 @@ async def submit_feedback(
 
 @router.websocket("/{conversation_id}/ws")
 async def websocket_endpoint(websocket: WebSocket, conversation_id: str, db: AsyncSession = Depends(get_db)):
-    """
-    WebSocket endpoint for real-time messaging.
-    In a real app, we'd authenticate the WebSocket using a token in query params.
-    For this MVP, we assume the connection is valid and pass a dummy user_id for RAG execution.
-    """
-    await realtime_messaging_service.manager.connect(websocket, conversation_id)
-    # Using a dummy user_id for the MVP WebSocket stream to bypass RBAC on the background RAG call
+    await websocket_manager.connect(websocket, "chat", conversation_id)
     dummy_user_id = "00000000-0000-0000-0000-000000000000" 
-    
     try:
         while True:
             data = await websocket.receive_text()
-            # Expecting raw text messages from the client
             await realtime_messaging_service.handle_customer_message(
                 db=db,
                 websocket=websocket,
@@ -255,4 +275,33 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str, db: Asy
                 user_id=dummy_user_id
             )
     except WebSocketDisconnect:
-        realtime_messaging_service.manager.disconnect(websocket, conversation_id)
+        websocket_manager.disconnect(websocket, "chat", conversation_id)
+
+@router.websocket("/agent/{user_id}/ws")
+async def agent_websocket_endpoint(websocket: WebSocket, user_id: str, db: AsyncSession = Depends(get_db)):
+    await websocket_manager.connect(websocket, "agent", user_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Agent sends messages through this socket
+            msg_data = json.loads(data)
+            conv_id = msg_data.get("conversation_id")
+            text = msg_data.get("content")
+            if conv_id and text:
+                await realtime_messaging_service.handle_agent_message(
+                    db=db,
+                    conversation_id=conv_id,
+                    text=text,
+                    user_id=user_id
+                )
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "agent", user_id)
+
+@router.websocket("/notifications/{user_id}/ws")
+async def notifications_websocket_endpoint(websocket: WebSocket, user_id: str, db: AsyncSession = Depends(get_db)):
+    await websocket_manager.connect(websocket, "notifications", user_id)
+    try:
+        while True:
+            await websocket.receive_text() # keepalive
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "notifications", user_id)

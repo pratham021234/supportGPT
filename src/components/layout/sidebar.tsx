@@ -34,6 +34,8 @@ const bottomNavItems = [
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
+import { WorkspaceSwitcher } from "./workspace-switcher";
+
 export function Sidebar() {
   const pathname = usePathname();
 
@@ -46,6 +48,7 @@ export function Sidebar() {
         </Link>
       </div>
       <div className="flex-1 overflow-auto py-2">
+        <WorkspaceSwitcher />
         <nav className="grid items-start px-2 text-sm font-medium lg:px-4 gap-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href;

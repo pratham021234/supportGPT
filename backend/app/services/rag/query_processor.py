@@ -8,6 +8,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from app.core.config import settings
 
+from app.services.rag.agent_router import agent_router
+from app.services.rag.query_expansion import query_expansion_service
+
 logger = logging.getLogger(__name__)
 
 class QueryIntent(BaseModel):
@@ -65,14 +68,23 @@ class QueryProcessor:
             chain = self.prompt | self.llm
             result: QueryIntent = await chain.ainvoke({"query": query})
             
-            return result.model_dump()
+            # Extract and refine
+            output = result.model_dump()
+            
+            # Overwrite routing with our explicit AgentRouter for strict mapping
+            output["agent_routing"] = agent_router.determine_agent(output["intent"], query)
+            
+            # Expand Keywords
+            output["keywords"] = query_expansion_service.expand_query(query, output["keywords"])
+            
+            return output
         except Exception as e:
             logger.error(f"LLM Query Processing failed: {e}")
             return {
                 "normalized_query": norm_query,
                 "intent": "GENERAL",
                 "language": "en",
-                "keywords": norm_query.split()[:5],
+                "keywords": query_expansion_service.expand_query(query, norm_query.split()[:5]),
                 "agent_routing": "SUPPORT"
             }
 

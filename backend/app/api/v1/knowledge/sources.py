@@ -6,6 +6,7 @@ from app.dependencies.db import get_db
 from app.dependencies.authz import require_permission
 from app.models.workspace import WorkspaceMember
 from app.schemas.knowledge import KnowledgeSourceCreate, KnowledgeSourceUpdate, KnowledgeSourceResponse
+from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 from app.services.knowledge_service import knowledge_service
 
 router = APIRouter()
@@ -18,14 +19,14 @@ async def create_source(
 ):
     return await knowledge_service.create_source(db, str(member.workspace_id), str(member.user_id), obj_in)
 
-@router.get("/", response_model=List[KnowledgeSourceResponse])
+@router.get("/", response_model=PaginatedResponse[KnowledgeSourceResponse])
 async def list_sources(
-    skip: int = 0,
-    limit: int = 100,
+    pagination: PaginationParams = Depends(),
+    filters: FilterParams = Depends(),
     member: WorkspaceMember = Depends(require_permission("knowledge:read")),
     db: AsyncSession = Depends(get_db)
 ):
-    return await knowledge_service.get_workspace_sources(db, str(member.workspace_id), skip, limit)
+    return await knowledge_service.get_workspace_sources_paginated(db, str(member.workspace_id), pagination, filters)
 
 @router.patch("/{source_id}", response_model=KnowledgeSourceResponse)
 async def update_source(

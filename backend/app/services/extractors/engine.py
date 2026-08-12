@@ -30,14 +30,28 @@ class DOCXExtractor(BaseExtractor):
     def extract(self, file_path: str) -> Tuple[str, int, Dict[str, Any]]:
         try:
             doc = docx.Document(file_path)
-            text_content = [para.text for para in doc.paragraphs if para.text.strip()]
+            text_content = []
+            
+            # Extract paragraphs and headings
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    if para.style.name.startswith('Heading'):
+                        text_content.append(f"## {para.text.strip()}")
+                    else:
+                        text_content.append(para.text.strip())
+                        
+            # Extract tables
+            for table in doc.tables:
+                for row in table.rows:
+                    row_data = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if row_data:
+                        text_content.append(" | ".join(row_data))
             
             metadata = {
                 "author": doc.core_properties.author,
                 "title": doc.core_properties.title,
                 "created": str(doc.core_properties.created)
             }
-            # DOCX doesn't have "pages", so we estimate by sections or just say 1
             page_count = len(doc.sections) if doc.sections else 1
             return "\n\n".join(text_content), page_count, metadata
         except Exception as e:
@@ -66,20 +80,39 @@ class HTMLExtractor(BaseExtractor):
 class TXTExtractor(BaseExtractor):
     def extract(self, file_path: str) -> Tuple[str, int, Dict[str, Any]]:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            return content, 1, {}
+            # Try UTF-8 first
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                encoding = "utf-8"
+            except UnicodeDecodeError:
+                # Fallback to ascii/latin-1
+                with open(file_path, "r", encoding="latin-1") as f:
+                    content = f.read()
+                encoding = "latin-1"
+                
+            return content, 1, {"encoding": encoding}
         except Exception as e:
             logger.error(f"Failed to parse TXT {file_path}: {str(e)}")
             raise e
 
 class MarkdownExtractor(BaseExtractor):
     def extract(self, file_path: str) -> Tuple[str, int, Dict[str, Any]]:
-        # For now, treat markdown similarly to TXT but in the future we could parse frontmatter
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            return content, 1, {"is_markdown": True}
+                
+            # Basic structural extraction (can be extended with markdown-it-py)
+            lines = content.split('\n')
+            headings = [line for line in lines if line.startswith('#')]
+            code_blocks = content.count('```') // 2
+            
+            metadata = {
+                "is_markdown": True,
+                "headings_count": len(headings),
+                "code_blocks_count": code_blocks
+            }
+            return content, 1, metadata
         except Exception as e:
             logger.error(f"Failed to parse Markdown {file_path}: {str(e)}")
             raise e

@@ -5,8 +5,11 @@ from typing import List, Optional
 from app.dependencies.db import get_db
 from app.dependencies.authz import require_permission
 from app.models.workspace import WorkspaceMember
-from app.schemas.knowledge import DocumentResponse
+from app.schemas.knowledge import DocumentResponse, DocumentUpdate
+from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 from app.services.knowledge_service import knowledge_service
+from app.services.knowledge_ingestion import document_ingestion_service
+from app.services.processing.retry import retry_processing_service
 
 router = APIRouter()
 
@@ -17,7 +20,7 @@ async def upload_document(
     member: WorkspaceMember = Depends(require_permission("knowledge:create")),
     db: AsyncSession = Depends(get_db)
 ):
-    return await knowledge_service.upload_document(
+    return await document_ingestion_service.upload_document(
         db, str(member.workspace_id), str(member.user_id), file, source_id
     )
 
@@ -36,14 +39,14 @@ async def crawl_website(
         db, str(member.workspace_id), str(member.user_id), payload.url, payload.source_id
     )
 
-@router.get("/", response_model=List[DocumentResponse])
+@router.get("/", response_model=PaginatedResponse[DocumentResponse])
 async def list_documents(
-    skip: int = 0,
-    limit: int = 100,
+    pagination: PaginationParams = Depends(),
+    filters: FilterParams = Depends(),
     member: WorkspaceMember = Depends(require_permission("knowledge:read")),
     db: AsyncSession = Depends(get_db)
 ):
-    return await knowledge_service.get_workspace_documents(db, str(member.workspace_id), skip, limit)
+    return await knowledge_service.get_workspace_documents_paginated(db, str(member.workspace_id), pagination, filters)
 
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(
@@ -61,38 +64,77 @@ async def delete_document(
 ):
     await knowledge_service.delete_document(db, document_id, str(member.workspace_id))
 
+@router.patch("/{document_id}", response_model=DocumentResponse)
+async def update_document(
+    document_id: str,
+    obj_in: DocumentUpdate,
+    member: WorkspaceMember = Depends(require_permission("knowledge:manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await knowledge_service.update_document(db, document_id, str(member.workspace_id), obj_in)
+
+@router.get("/{document_id}/metadata")
+async def get_document_metadata(
+    document_id: str,
+    member: WorkspaceMember = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db)
+):
+    doc = await knowledge_service.get_document(db, document_id, str(member.workspace_id))
+    return {
+        "id": str(doc.id),
+        "title": doc.title,
+        "file_name": doc.file_name,
+        "file_type": doc.file_type,
+        "file_size": doc.file_size,
+        "status": doc.status,
+        "metadata": doc.metadata_,
+        "created_at": doc.created_at,
+        "updated_at": doc.updated_at
+    }
+
+@router.post("/{document_id}/reindex", status_code=status.HTTP_202_ACCEPTED)
+async def reindex_document(
+    document_id: str,
+    member: WorkspaceMember = Depends(require_permission("knowledge:create")),
+    db: AsyncSession = Depends(get_db)
+):
+    # For now, reindex simply re-queues processing
+    await retry_processing_service.retry_document_job(db, document_id, str(member.workspace_id))
+    return {"status": "reindexing_queued"}
+
+@router.post("/{document_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+async def retry_document(
+    document_id: str,
+    member: WorkspaceMember = Depends(require_permission("knowledge:create")),
+    db: AsyncSession = Depends(get_db)
+):
+    await retry_processing_service.retry_document_job(db, document_id, str(member.workspace_id))
+    return {"status": "retry_queued"}
+
 @router.post("/{document_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
 async def reprocess_document(
     document_id: str,
     member: WorkspaceMember = Depends(require_permission("knowledge:create")),
     db: AsyncSession = Depends(get_db)
 ):
-    # Retrieve document, if it's website queue website task, if file queue document task.
-    # We will assume a minimal implementation here that queues document process
-    doc = await knowledge_service.get_document(db, document_id, str(member.workspace_id))
-    if doc.file_type == "website":
-        await knowledge_service.process_website(db, str(member.workspace_id), str(member.user_id), doc.file_name, str(doc.source_id) if doc.source_id else None)
-    else:
-        # Re-enqueuing relies on having the file still in storage.
-        if doc.storage_path:
-            from app.tasks.knowledge_tasks import process_document_task
-            from app.models.processing import JobStatus
-            from app.repositories.processing_repo import processing_job_repo, ProcessingJobInternalCreate
-            from app.models.knowledge import DocumentStatus
-            from app.repositories.knowledge_repo import document_repo
-            
-            job_in = ProcessingJobInternalCreate(
-                workspace_id=str(doc.workspace_id),
-                document_id=str(doc.id),
-                status=JobStatus.QUEUED
-            )
-            job = await processing_job_repo.create(db, obj_in=job_in)
-            process_document_task.delay(
-                str(job.id),
-                doc.storage_path,
-                "TXT", # Simplification
-                str(doc.workspace_id),
-                str(doc.id)
-            )
-            await document_repo.update(db, db_obj=doc, obj_in={"status": DocumentStatus.PROCESSING})
+    await retry_processing_service.retry_document_job(db, document_id, str(member.workspace_id))
     return {"status": "reprocessing_queued"}
+
+@router.get("/{document_id}/status")
+async def get_document_status(
+    document_id: str,
+    member: WorkspaceMember = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.repositories.processing_repo import processing_job_repo
+    jobs = await processing_job_repo.get_by_document(db, document_id)
+    if not jobs:
+        raise HTTPException(status_code=404, detail="No processing jobs found.")
+    job = jobs[-1]
+    return {
+        "status": job.status,
+        "progress": job.progress,
+        "error_message": job.error_message,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at
+    }

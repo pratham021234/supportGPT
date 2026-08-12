@@ -4,6 +4,7 @@ from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Floa
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.models.mixins import TimestampMixin, SoftDeleteMixin, AuditMixin
 import enum
 
 class AgentStatus(str, enum.Enum):
@@ -25,7 +26,7 @@ class AgentVisibility(str, enum.Enum):
     INTERNAL = "INTERNAL"
     PUBLIC = "PUBLIC"
 
-class Agent(Base):
+class Agent(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "agents"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -41,12 +42,8 @@ class Agent(Base):
     
     default_language = Column(String(10), default="en")
     
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
     workspace = relationship("Workspace")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys="[Agent.created_by]")
     
     prompt = relationship("AgentPrompt", uselist=False, back_populates="agent", cascade="all, delete-orphan")
     model_config = relationship("AgentModelConfig", uselist=False, back_populates="agent", cascade="all, delete-orphan")
@@ -54,10 +51,11 @@ class Agent(Base):
     knowledge_scopes = relationship("AgentKnowledgeScope", back_populates="agent", cascade="all, delete-orphan")
     versions = relationship("AgentVersion", back_populates="agent", cascade="all, delete-orphan")
 
-class AgentPrompt(Base):
+class AgentPrompt(Base, TimestampMixin):
     __tablename__ = "agent_prompts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, unique=True)
     
     system_prompt = Column(Text, nullable=False, default="You are a helpful support agent. Answer questions using the provided context.")
@@ -66,29 +64,25 @@ class AgentPrompt(Base):
     tone = Column(String(50), default="Professional")
     behavior_rules = Column(Text, nullable=True)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    
     agent = relationship("Agent", back_populates="prompt")
 
-class AgentVersion(Base):
+class AgentVersion(Base, TimestampMixin, AuditMixin):
     __tablename__ = "agent_versions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
     
     version_number = Column(Integer, nullable=False)
     configuration_snapshot = Column(JSONB, nullable=False)
     
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
     agent = relationship("Agent", back_populates="versions")
 
-class AgentKnowledgeScope(Base):
+class AgentKnowledgeScope(Base, TimestampMixin):
     __tablename__ = "agent_knowledge_scopes"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
     
     # Scoping rules
@@ -96,14 +90,13 @@ class AgentKnowledgeScope(Base):
     source_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=True)
     tag_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_tags.id", ondelete="CASCADE"), nullable=True)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
     agent = relationship("Agent", back_populates="knowledge_scopes")
 
-class AgentModelConfig(Base):
+class AgentModelConfig(Base, TimestampMixin):
     __tablename__ = "agent_model_configs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, unique=True)
     
     provider = Column(String(50), default="google")
@@ -115,22 +108,18 @@ class AgentModelConfig(Base):
     frequency_penalty = Column(Float, default=0.0)
     presence_penalty = Column(Float, default=0.0)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    
     agent = relationship("Agent", back_populates="model_config")
 
-class AgentEscalationRule(Base):
+class AgentEscalationRule(Base, TimestampMixin):
     __tablename__ = "agent_escalation_rules"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, unique=True)
     
     confidence_threshold = Column(Float, default=70.0)
     auto_create_ticket = Column(Boolean, default=False)
     auto_handoff = Column(Boolean, default=True)
     escalation_message = Column(Text, nullable=True, default="Let me connect you with a human agent who can help.")
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     
     agent = relationship("Agent", back_populates="escalation_rule")

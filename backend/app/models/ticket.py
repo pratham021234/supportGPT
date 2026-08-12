@@ -4,6 +4,7 @@ from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Enum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.models.mixins import TimestampMixin, SoftDeleteMixin, AuditMixin
 import enum
 
 class TicketPriority(str, enum.Enum):
@@ -29,13 +30,13 @@ class TicketSource(str, enum.Enum):
     API = "API"
     SYSTEM = "SYSTEM"
 
-class Ticket(Base):
+class Ticket(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "tickets"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     
     title = Column(String(255), nullable=False)
@@ -52,9 +53,6 @@ class Ticket(Base):
     
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     workspace = relationship("Workspace")
     conversation = relationship("Conversation")
@@ -68,48 +66,45 @@ class Ticket(Base):
     activities = relationship("TicketActivity", back_populates="ticket", cascade="all, delete-orphan")
     assignments = relationship("TicketAssignment", back_populates="ticket", cascade="all, delete-orphan")
 
-class TicketComment(Base):
+class TicketComment(Base, TimestampMixin, AuditMixin):
     __tablename__ = "ticket_comments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
     content = Column(Text, nullable=False)
     is_internal = Column(Boolean, default=False)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
     ticket = relationship("Ticket", back_populates="comments")
-    author = relationship("User")
+    author = relationship("User", foreign_keys="[TicketComment.author_id]")
 
-class TicketAssignment(Base):
+class TicketAssignment(Base, TimestampMixin):
     __tablename__ = "ticket_assignments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
     assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     assigned_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
-    assigned_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
     ticket = relationship("Ticket", back_populates="assignments")
 
-class TicketActivity(Base):
+class TicketActivity(Base, TimestampMixin):
     __tablename__ = "ticket_activities"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
     actor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
     action = Column(String(100), nullable=False)
     metadata_ = Column("metadata", JSONB, nullable=True)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
     ticket = relationship("Ticket", back_populates="activities")
 
-class SLAConfiguration(Base):
+class SLAConfiguration(Base, TimestampMixin):
     __tablename__ = "sla_configurations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -118,8 +113,5 @@ class SLAConfiguration(Base):
     priority = Column(Enum(TicketPriority), nullable=False)
     first_response_minutes = Column(Integer, default=60)
     resolution_minutes = Column(Integer, default=1440)
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     workspace = relationship("Workspace")

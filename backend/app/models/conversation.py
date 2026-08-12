@@ -4,6 +4,7 @@ from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Enum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.models.mixins import TimestampMixin, SoftDeleteMixin, AuditMixin
 import enum
 
 class ConversationStatus(str, enum.Enum):
@@ -34,11 +35,11 @@ class MessageType(str, enum.Enum):
     CITATION = "CITATION"
     ATTACHMENT = "ATTACHMENT"
 
-class Customer(Base):
+class Customer(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "customers"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     
     name = Column(String(255), nullable=True)
     email = Column(String(255), nullable=True, index=True)
@@ -49,20 +50,18 @@ class Customer(Base):
     
     first_seen_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     last_seen_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     workspace = relationship("Workspace")
     conversations = relationship("Conversation", back_populates="customer", cascade="all, delete-orphan")
 
-class Conversation(Base):
+class Conversation(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "conversations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
-    assigned_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True)
+    assigned_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     
     status = Column(Enum(ConversationStatus), default=ConversationStatus.OPEN, nullable=False)
     channel = Column(Enum(ConversationChannel), default=ConversationChannel.WEB_CHAT, nullable=False)
@@ -72,24 +71,22 @@ class Conversation(Base):
     started_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     last_message_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     workspace = relationship("Workspace")
     customer = relationship("Customer", back_populates="conversations")
     agent = relationship("Agent")
-    assigned_user = relationship("User")
+    assigned_user = relationship("User", foreign_keys="[Conversation.assigned_user_id]")
     
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
     events = relationship("ConversationEvent", back_populates="conversation", cascade="all, delete-orphan")
     assignments = relationship("ConversationAssignment", back_populates="conversation", cascade="all, delete-orphan")
 
-class Message(Base):
+class Message(Base, TimestampMixin):
     __tablename__ = "messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     
     sender_type = Column(Enum(SenderType), nullable=False)
     sender_id = Column(UUID(as_uuid=True), nullable=True) # Could be Customer ID, Agent ID, or User ID
@@ -99,45 +96,41 @@ class Message(Base):
     
     metadata_ = Column("metadata", JSONB, nullable=True)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
     conversation = relationship("Conversation", back_populates="messages")
 
-class ConversationAssignment(Base):
+class ConversationAssignment(Base, TimestampMixin):
     __tablename__ = "conversation_assignments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
-    assigned_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    assigned_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     assigned_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    
     assigned_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     
     conversation = relationship("Conversation", back_populates="assignments")
 
-class ConversationEvent(Base):
+class ConversationEvent(Base, TimestampMixin):
     __tablename__ = "conversation_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     
     event_type = Column(String(50), nullable=False)
     metadata_ = Column("metadata", JSONB, nullable=True)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
     conversation = relationship("Conversation", back_populates="events")
 
-class CustomerFeedback(Base):
+class CustomerFeedback(Base, TimestampMixin):
     __tablename__ = "customer_feedback"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, unique=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     
     is_helpful = Column(Boolean, nullable=True)
     rating = Column(Integer, nullable=True)  # 1 to 5
     comment = Column(Text, nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     
     conversation = relationship("Conversation", backref="feedback")

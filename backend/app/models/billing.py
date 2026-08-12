@@ -5,6 +5,7 @@ from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Text, Enum, 
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.models.mixins import TimestampMixin, SoftDeleteMixin, AuditMixin
 
 class SubscriptionStatus(str, enum.Enum):
     TRIAL = "TRIAL"
@@ -34,7 +35,7 @@ class SeatStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
 
-class Plan(Base):
+class Plan(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "billing_plans"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -48,11 +49,8 @@ class Plan(Base):
     features = Column(JSONB, default=list)
     # JSON dict of limits (e.g. {"max_agents": 5, "max_conversations": 5000})
     limits = Column(JSONB, default=dict)
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
-class Subscription(Base):
+class Subscription(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "billing_subscriptions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -69,11 +67,8 @@ class Subscription(Base):
     started_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     renews_at = Column(DateTime(timezone=True), nullable=True)
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
-class PaymentMethod(Base):
+class PaymentMethod(Base, TimestampMixin):
     __tablename__ = "billing_payment_methods"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -81,10 +76,8 @@ class PaymentMethod(Base):
     
     provider = Column(String(50), default="stripe")
     provider_reference = Column(String(255), nullable=False) # pm_xxx
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-class Invoice(Base):
+class Invoice(Base, TimestampMixin):
     __tablename__ = "billing_invoices"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -99,9 +92,8 @@ class Invoice(Base):
     
     issued_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     paid_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-class Payment(Base):
+class Payment(Base, TimestampMixin):
     __tablename__ = "billing_payments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -113,10 +105,8 @@ class Payment(Base):
     provider_reference = Column(String(255), nullable=True) # pi_xxx
     
     status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING)
-    
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-class Seat(Base):
+class Seat(Base, TimestampMixin):
     __tablename__ = "billing_seats"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -124,9 +114,8 @@ class Seat(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     status = Column(Enum(SeatStatus), default=SeatStatus.ACTIVE)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-class UsageRecord(Base):
+class UsageRecord(Base, TimestampMixin):
     __tablename__ = "billing_usage_records"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -136,4 +125,3 @@ class UsageRecord(Base):
     metric_value = Column(Float, default=1.0)
     
     recorded_at = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)

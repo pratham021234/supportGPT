@@ -2,20 +2,12 @@
 
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Area, AreaChart } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useQuery } from "@tanstack/react-query";
-import { analyticsClient } from "@/lib/api/analytics-client";
+import { useVolumeTrends, useResolutionTrends } from "@/lib/api/dashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function OverviewCharts() {
-  const { data: volumeData, isLoading: volumeLoading } = useQuery({
-    queryKey: ["analytics-volume"],
-    queryFn: analyticsClient.getVolumeMetrics,
-  });
-
-  const { data: resolutionData, isLoading: resolutionLoading } = useQuery({
-    queryKey: ["analytics-resolution"],
-    queryFn: analyticsClient.getResolutionMetrics,
-  });
+export function OverviewCharts({ timeRange }: { timeRange: string }) {
+  const { data: volumeData, isLoading: volumeLoading } = useVolumeTrends(timeRange);
+  const { data: resolutionData, isLoading: resolutionLoading } = useResolutionTrends(timeRange);
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">

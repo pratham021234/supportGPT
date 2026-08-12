@@ -7,7 +7,7 @@ from app.dependencies import (
     get_db, get_current_active_user, get_current_workspace,
     require_workspace_member, require_workspace_admin, require_workspace_owner
 )
-from app.services import workspace_service, invitation_service, audit_service
+from app.services import workspace_service, invitation_service, audit_service, team_service
 from app.schemas.workspace import (
     WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse,
     WorkspaceMemberResponse, WorkspaceMemberUpdate,
@@ -57,6 +57,15 @@ async def get_current_active_workspace(workspace: Workspace = Depends(get_curren
         "data": WorkspaceResponse.model_validate(workspace).model_dump()
     }
 
+@router.get("/{id}", response_model=Dict[str, Any], dependencies=[Depends(require_workspace_member)])
+async def get_workspace(id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    workspace = await workspace_service.get_workspace(db, id, str(current_user.id))
+    return {
+        "success": True,
+        "message": "Workspace fetched successfully",
+        "data": WorkspaceResponse.model_validate(workspace).model_dump()
+    }
+
 @router.patch("/{id}", response_model=Dict[str, Any], dependencies=[Depends(require_workspace_admin)])
 async def update_workspace(id: str, request: WorkspaceUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     workspace = await workspace_service.update_settings(db, id, request, str(current_user.id))
@@ -66,9 +75,17 @@ async def update_workspace(id: str, request: WorkspaceUpdate, db: AsyncSession =
         "data": WorkspaceResponse.model_validate(workspace).model_dump()
     }
 
+@router.delete("/{id}", response_model=Dict[str, Any], dependencies=[Depends(require_workspace_owner)])
+async def delete_workspace(id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    await workspace_service.delete_workspace(db, id, str(current_user.id))
+    return {
+        "success": True,
+        "message": "Workspace deleted successfully"
+    }
+
 @router.get("/{id}/members", response_model=Dict[str, Any], dependencies=[Depends(require_workspace_member)])
 async def list_members(id: str, db: AsyncSession = Depends(get_db), skip: int = 0, limit: int = 100):
-    members = await workspace_service.get_members(db, id, skip, limit)
+    members = await team_service.get_members(db, id, skip, limit)
     # Map to schema mapping user email/name optionally
     data = []
     for m in members:
@@ -85,7 +102,11 @@ async def list_members(id: str, db: AsyncSession = Depends(get_db), skip: int = 
 
 @router.patch("/{id}/members/{member_id}", response_model=Dict[str, Any], dependencies=[Depends(require_workspace_admin)])
 async def change_member_role(id: str, member_id: str, request: WorkspaceMemberUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    updated_member = await workspace_service.change_member_role(db, id, member_id, request.role, str(current_user.id))
+    # request.role is probably a role name or ID. If ID, team_service.assign_role_by_id. If name, assign_role.
+    # Assuming role name from schema
+    assignment = await team_service.assign_role(db, member_id, request.role, str(current_user.id))
+    # We might need to fetch the updated member
+    updated_member = await team_service.get_member(db, id, member_id)
     return {
         "success": True,
         "message": "Member role updated",
@@ -94,7 +115,7 @@ async def change_member_role(id: str, member_id: str, request: WorkspaceMemberUp
 
 @router.delete("/{id}/members/{member_id}", response_model=Dict[str, Any], dependencies=[Depends(require_workspace_admin)])
 async def remove_member(id: str, member_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    await workspace_service.remove_member(db, id, member_id, str(current_user.id))
+    await team_service.update_status(db, id, member_id, "REMOVED", str(current_user.id))
     return {
         "success": True,
         "message": "Member removed successfully"

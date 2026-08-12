@@ -31,6 +31,7 @@ class MessageInternalCreate(BaseModel):
     sender_id: Optional[str] = None
     content: str
     message_type: MessageType = MessageType.TEXT
+    metadata_: Optional[Dict[str, Any]] = None
 
 class ConversationEventInternalCreate(BaseModel):
     conversation_id: str

@@ -33,7 +33,7 @@ jobs:
 
       - name: Test with pytest
         env:
-          DATABASE_URL: sqlite+aiosqlite:///:memory:
+          DATABASE_URL=sqlite+aiosqlite:///:memory:
           JWT_SECRET_KEY: test_secret
         run: |
           cd backend && pytest

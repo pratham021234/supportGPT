@@ -18,7 +18,8 @@ class SearchService:
         user_id: Optional[str],
         query: str,
         limit: int = 10,
-        document_id: Optional[str] = None
+        document_id: Optional[str] = None,
+        agent_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Executes a semantic search against the workspace's vector collection.
@@ -35,7 +36,8 @@ class SearchService:
                 workspace_id=workspace_id,
                 query_vector=query_vector,
                 limit=limit,
-                document_id=document_id
+                document_id=document_id,
+                agent_id=agent_id
             )
             
             # 3. Format Results

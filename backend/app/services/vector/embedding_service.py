@@ -39,6 +39,15 @@ class EmbeddingService:
                 from app.repositories.knowledge_repo import document_repo
                 doc = await document_repo.get(db, id=document_id)
                 document_title = doc.title if doc else "Unknown"
+                
+                # Check for agent_id on document (if it's tied to an agent source)
+                agent_id = None
+                if doc and doc.source_id:
+                    # If this is linked to a source, that source might be tied to an agent
+                    # For strict agent isolation, we usually store this in doc metadata
+                    pass
+                if doc and doc.metadata_:
+                    agent_id = doc.metadata_.get("agent_id")
 
                 # 4. Fetch Chunks
                 query = select(DocumentChunk).where(DocumentChunk.document_id == document_id).order_by(DocumentChunk.chunk_index)
@@ -75,6 +84,8 @@ class EmbeddingService:
                             "content": chunk.content,
                             "document_title": document_title
                         })
+                        if agent_id:
+                            payload["agent_id"] = agent_id
                         
                         points.append(
                             rest.PointStruct(

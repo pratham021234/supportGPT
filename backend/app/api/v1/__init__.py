@@ -18,6 +18,7 @@ from app.api.v1.billing.router import router as billing_router
 from app.api.v1.automation.router import router as automation_router
 from app.api.v1.security.router import router as security_router
 from app.api.v1.integrations.router import router as integrations_router
+from app.api.v1.settings.router import router as settings_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -39,3 +40,4 @@ api_router.include_router(billing_router, prefix="/billing", tags=["Billing & Mo
 api_router.include_router(automation_router, prefix="/automation", tags=["Automation"])
 api_router.include_router(security_router, prefix="/security", tags=["Security & Compliance"])
 api_router.include_router(integrations_router, prefix="/integrations", tags=["Integrations & Marketplace"])
+api_router.include_router(settings_router, prefix="/settings", tags=["Workspace Settings"])

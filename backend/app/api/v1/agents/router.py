@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Any, Optional
 from pydantic import BaseModel
+from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 
 from app.dependencies.db import get_db
 from app.dependencies.authz import require_permission
@@ -64,14 +65,45 @@ async def create_agent(
     )
     return agent
 
-@router.get("")
+@router.get("", response_model=PaginatedResponse[Any])
 async def list_agents(
+    pagination: PaginationParams = Depends(),
+    filters: FilterParams = Depends(),
     member: WorkspaceMember = Depends(require_permission("manage_agents")),
     db: AsyncSession = Depends(get_db)
 ):
     """Lists all agents in the workspace."""
-    agents = await agent_service.get_workspace_agents(db, str(member.workspace_id))
-    return agents
+    agents_paginated = await agent_service.get_workspace_agents_paginated(db, str(member.workspace_id), pagination, filters)
+    return agents_paginated
+
+@router.get("/{agent_id}")
+async def get_agent(
+    agent_id: str,
+    member: WorkspaceMember = Depends(require_permission("view_agents")),
+    db: AsyncSession = Depends(get_db)
+):
+    agent = await agent_service.get_agent(db, agent_id)
+    if not agent or str(agent.workspace_id) != str(member.workspace_id):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return agent
+
+class AgentUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    visibility: Optional[str] = None
+
+@router.patch("/{agent_id}")
+async def update_agent(
+    agent_id: str,
+    req: AgentUpdateRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_agents")),
+    db: AsyncSession = Depends(get_db)
+):
+    agent = await agent_service.get_agent(db, agent_id)
+    if not agent or str(agent.workspace_id) != str(member.workspace_id):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    updated = await agent_service.update_agent(db, agent_id, req.model_dump(exclude_unset=True))
+    return updated
 
 @router.post("/{agent_id}/publish")
 async def publish_agent(

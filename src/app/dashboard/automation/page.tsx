@@ -72,7 +72,7 @@ export default function AutomationPage() {
       setIsCreating(false);
   };
   
-  const handleDelete = async (id: str) => {
+  const handleDelete = async (id: string) => {
       if (!user) return;
       await fetch(`/api/v1/automation/rules/${id}`, {
           method: "DELETE",
@@ -116,7 +116,7 @@ export default function AutomationPage() {
                         
                         <div className="space-y-2">
                             <Label>When Event Happens</Label>
-                            <Select value={newRule.trigger_event} onValueChange={v => setNewRule({...newRule, trigger_event: v})}>
+                            <Select value={newRule.trigger_event} onValueChange={v => setNewRule({...newRule, trigger_event: v || ""})}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="LOW_CONFIDENCE">Low Confidence Answer</SelectItem>
@@ -130,7 +130,7 @@ export default function AutomationPage() {
                             <Label>If Condition</Label>
                             <div className="flex space-x-2">
                                 <Input className="w-1/3" placeholder="Field" value={newRule.conditionField} onChange={e => setNewRule({...newRule, conditionField: e.target.value})} />
-                                <Select value={newRule.conditionOp} onValueChange={v => setNewRule({...newRule, conditionOp: v})}>
+                                <Select value={newRule.conditionOp} onValueChange={v => setNewRule({...newRule, conditionOp: v || ""})}>
                                     <SelectTrigger className="w-1/3"><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="lt">&lt;</SelectItem>
@@ -145,7 +145,7 @@ export default function AutomationPage() {
                         
                         <div className="space-y-2">
                             <Label>Then Action</Label>
-                            <Select value={newRule.actionType} onValueChange={v => setNewRule({...newRule, actionType: v})}>
+                            <Select value={newRule.actionType} onValueChange={v => setNewRule({...newRule, actionType: v || ""})}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="CREATE_TICKET">Create Ticket</SelectItem>

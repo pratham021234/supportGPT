@@ -4,6 +4,7 @@ from sqlalchemy import text
 from app.dependencies.db import get_db
 import redis.asyncio as redis
 from app.core.config import settings
+from app.services.database_health import check_database_health
 import logging
 
 router = APIRouter()
@@ -55,3 +56,11 @@ async def readiness_probe(db: AsyncSession = Depends(get_db)):
     
     from fastapi.responses import JSONResponse
     return JSONResponse(status_code=status_code, content=response)
+
+@router.get("/database")
+async def database_health(db: AsyncSession = Depends(get_db)):
+    """Advanced Database Health Check for Phase B2."""
+    health_status = await check_database_health(db)
+    status_code = 200 if health_status.get("status") == "healthy" else 503
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=status_code, content=health_status)

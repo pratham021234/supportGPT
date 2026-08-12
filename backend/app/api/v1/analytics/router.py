@@ -40,11 +40,64 @@ async def log_event(
 
 @router.get("/dashboard")
 async def get_dashboard(
+    time_range: Optional[str] = "7d",
     member: WorkspaceMember = Depends(require_permission("view_analytics")),
     db: AsyncSession = Depends(get_db)
 ):
-    metrics = await metrics_service.get_dashboard_metrics(db, str(member.workspace_id))
+    metrics = await metrics_service.get_dashboard_metrics(db, str(member.workspace_id), time_range)
     return metrics
+
+@router.get("/volume")
+async def get_volume(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await metrics_service.get_volume_metrics(db, str(member.workspace_id), time_range)
+
+@router.get("/resolution")
+async def get_resolution(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await metrics_service.get_resolution_metrics(db, str(member.workspace_id), time_range)
+
+@router.get("/escalations")
+async def get_escalations(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await metrics_service.get_escalation_metrics(db, str(member.workspace_id), time_range)
+
+@router.get("/system-status")
+async def get_system_status(
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+):
+    return await metrics_service.get_system_status()
+    
+@router.get("/agents/summary")
+async def get_agents_summary(
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await metrics_service.get_agent_summary(db, str(member.workspace_id))
+
+@router.get("/top-questions")
+async def get_top_questions(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await knowledge_intelligence.get_top_questions(db, str(member.workspace_id), time_range)
+
+@router.get("/confidence-alerts")
+async def get_confidence_alerts(
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await knowledge_intelligence.get_confidence_alerts(db, str(member.workspace_id))
 
 @router.get("/knowledge-gaps")
 async def get_knowledge_gaps(

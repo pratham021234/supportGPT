@@ -1,145 +1,168 @@
 "use client";
 
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { usePromptStudioAgents, useUpdateModelSettings, useUpdateEscalation } from "@/lib/api/prompt-studio";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, Play, Bot, Sparkles, MessageSquare } from "lucide-react";
+import { Loader2 } from "lucide-react";
+
+import { SystemPromptEditor } from "@/components/prompt-studio/system-prompt-editor";
+import { TestingPlayground } from "@/components/prompt-studio/testing-playground";
+import { VersionHistory } from "@/components/prompt-studio/version-history";
+import { useState } from "react";
 
 export default function PromptStudioPage() {
-  const [systemPrompt, setSystemPrompt] = useState(
-    "You are a helpful customer support agent for SupportGPT. Your goal is to resolve customer issues quickly and accurately using the provided knowledge base.\n\nAlways maintain a professional, empathetic tone. If you are unsure of an answer, DO NOT guess. Instead, offer to escalate the ticket to a human agent."
-  );
+  const searchParams = useSearchParams();
+  const agentId = searchParams.get("agent");
+
+  const { data: agents, isLoading: isLoadingAgents } = usePromptStudioAgents();
+
+  const { mutate: updateModel, isPending: isUpdatingModel } = useUpdateModelSettings(agentId || "");
+  const { mutate: updateEscalation, isPending: isUpdatingEscalation } = useUpdateEscalation(agentId || "");
+
+  // Local state for configuration sliders/switches (mocking some fields for MVP)
+  const [temperature, setTemperature] = useState(0.2);
+  const [autoEscalate, setAutoEscalate] = useState(true);
+  const [confidenceThreshold, setConfidenceThreshold] = useState("70");
+
+  const activeAgent = agents?.find(a => a.id === agentId);
+
+  if (!agentId || !activeAgent) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-muted-foreground p-8 text-center flex-col h-full">
+        <h2 className="text-xl font-semibold mb-2">No Agent Selected</h2>
+        <p className="text-sm">Please select an agent from the sidebar to configure its behavior and test its responses.</p>
+      </div>
+    );
+  }
+
+  const handleSaveModel = () => {
+    updateModel({ temperature });
+  };
+
+  const handleSaveEscalation = () => {
+    updateEscalation({ 
+      auto_handoff: autoEscalate, 
+      confidence_threshold: parseInt(confidenceThreshold) 
+    });
+  };
 
   return (
-    <div className="flex flex-col gap-6 h-[calc(100vh-8rem)]">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Prompt Studio</h1>
-          <p className="text-muted-foreground">
-            Configure agent behavior, system prompts, and test responses.
+    <div className="flex flex-1 min-h-0 relative">
+      {/* Configuration Panel */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex flex-col gap-1 pb-4 border-b">
+          <h1 className="text-2xl font-bold tracking-tight">{activeAgent.name}</h1>
+          <p className="text-muted-foreground text-sm">
+            Configure agent behavior, system prompts, safety rules, and versioning.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Select defaultValue="agent_1">
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select Agent" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="agent_1">Customer Support Agent</SelectItem>
-              <SelectItem value="agent_2">Technical Support</SelectItem>
-              <SelectItem value="agent_3">Sales Assistant</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button className="gap-2">
-            <Save className="h-4 w-4" /> Save Changes
-          </Button>
-        </div>
-      </div>
 
-      <div className="grid lg:grid-cols-2 gap-6 flex-1 min-h-0">
-        {/* Configuration Panel */}
-        <div className="flex flex-col gap-6 overflow-y-auto pr-2 pb-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>System Prompt</CardTitle>
-              <CardDescription>
-                The core instructions that dictate how the AI agent behaves and responds.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <Textarea 
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  className="min-h-[250px] font-mono text-sm resize-y" 
-                />
-                <div className="flex justify-between items-center text-sm text-muted-foreground">
-                  <span>Tokens: ~64</span>
-                  <Button variant="ghost" size="sm" className="h-8 gap-2 text-primary">
-                    <Sparkles className="h-4 w-4" /> Optimize Prompt
-                  </Button>
+        <Tabs defaultValue="prompt" className="w-full">
+          <TabsList className="grid w-full grid-cols-4 lg:w-[600px]">
+            <TabsTrigger value="prompt">System Prompt</TabsTrigger>
+            <TabsTrigger value="behavior">Behavior & Safety</TabsTrigger>
+            <TabsTrigger value="escalation">Escalation</TabsTrigger>
+            <TabsTrigger value="versions">Versions</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="prompt" className="mt-6">
+            <SystemPromptEditor agent={activeAgent} />
+          </TabsContent>
+
+          <TabsContent value="behavior" className="mt-6 space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Model Configuration</CardTitle>
+                <CardDescription>Select the underlying LLM and set its sampling parameters.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2 max-w-sm">
+                  <Label>Default Model</Label>
+                  <Select defaultValue="gpt-4o">
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gpt-4o">GPT-4o (Recommended)</SelectItem>
+                      <SelectItem value="claude-3-5-sonnet">Claude 3.5 Sonnet</SelectItem>
+                      <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+                
+                <div className="space-y-2 max-w-sm">
+                  <div className="flex justify-between">
+                    <Label>Temperature</Label>
+                    <span className="text-sm text-muted-foreground">{temperature}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" max="1" step="0.1" 
+                    value={temperature} 
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                    className="w-full" 
+                  />
+                  <p className="text-xs text-muted-foreground">Lower values mean more focused and deterministic responses. Higher values increase creativity.</p>
+                </div>
+              </CardContent>
+              <CardFooter className="border-t pt-4">
+                <Button onClick={handleSaveModel} disabled={isUpdatingModel}>
+                  {isUpdatingModel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Model Settings
+                </Button>
+              </CardFooter>
+            </Card>
 
-          <Tabs defaultValue="behavior">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="behavior">Behavior</TabsTrigger>
-              <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
-              <TabsTrigger value="escalation">Escalation</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="behavior" className="mt-4">
-              <Card>
-                <CardContent className="space-y-6 pt-6">
-                  <div className="space-y-2">
-                    <Label>Model</Label>
-                    <Select defaultValue="gpt-4o">
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="gpt-4o">GPT-4o (Recommended)</SelectItem>
-                        <SelectItem value="claude-3-5-sonnet">Claude 3.5 Sonnet</SelectItem>
-                        <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
-                      </SelectContent>
-                    </Select>
+            <Card>
+              <CardHeader>
+                <CardTitle>Safety & Citations</CardTitle>
+                <CardDescription>Configure how the agent handles unknown queries and citations.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Include Citations</Label>
+                    <p className="text-xs text-muted-foreground">Attach source links to AI answers when resolving queries.</p>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <Label>Temperature</Label>
-                      <span className="text-sm text-muted-foreground">0.2</span>
-                    </div>
-                    <input type="range" min="0" max="1" step="0.1" defaultValue="0.2" className="w-full" />
-                    <p className="text-xs text-muted-foreground">Lower values mean more focused and deterministic responses.</p>
+                  <Switch defaultChecked />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Strict Grounding (Hallucination Prevention)</Label>
+                    <p className="text-xs text-muted-foreground">Refuse to answer if the answer is not explicitly found in the knowledge base.</p>
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
-            <TabsContent value="knowledge" className="mt-4">
-              <Card>
-                <CardContent className="space-y-6 pt-6">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Include Citations</Label>
-                      <p className="text-xs text-muted-foreground">Attach source links to AI answers.</p>
-                    </div>
-                    <Switch defaultChecked />
+                  <Switch defaultChecked />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="escalation" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Escalation Rules</CardTitle>
+                <CardDescription>Determine when this agent should hand off the conversation to a human.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Auto-Escalate on Low Confidence</Label>
+                    <p className="text-xs text-muted-foreground">Transfer to human agent automatically if confidence is below threshold.</p>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Strict Grounding</Label>
-                      <p className="text-xs text-muted-foreground">Refuse to answer if not in knowledge base.</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
-            <TabsContent value="escalation" className="mt-4">
-              <Card>
-                <CardContent className="space-y-6 pt-6">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Auto-Escalate on Low Confidence</Label>
-                      <p className="text-xs text-muted-foreground">Transfer to human agent automatically.</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="space-y-2">
+                  <Switch 
+                    checked={autoEscalate} 
+                    onCheckedChange={setAutoEscalate} 
+                  />
+                </div>
+                {autoEscalate && (
+                  <div className="space-y-2 max-w-sm pl-4 border-l-2 border-muted mt-4">
                     <Label>Confidence Threshold</Label>
-                    <Select defaultValue="70">
+                    <Select value={confidenceThreshold} onValueChange={(val) => setConfidenceThreshold(val as string)}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select threshold" />
                       </SelectTrigger>
@@ -150,49 +173,32 @@ export default function PromptStudioPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
+                )}
+                <div className="flex items-center justify-between mt-4">
+                  <div className="space-y-0.5">
+                    <Label>Auto-Create Ticket</Label>
+                    <p className="text-xs text-muted-foreground">Create a ticket in the Operations dashboard when an escalation occurs.</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+              </CardContent>
+              <CardFooter className="border-t pt-4">
+                <Button onClick={handleSaveEscalation} disabled={isUpdatingEscalation}>
+                  {isUpdatingEscalation && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Escalation Rules
+                </Button>
+              </CardFooter>
+            </Card>
+          </TabsContent>
 
-        {/* Testing Playground */}
-        <div className="flex flex-col h-full overflow-hidden border rounded-xl bg-background shadow-sm">
-          <div className="h-12 border-b bg-muted/30 flex items-center px-4 justify-between shrink-0">
-            <div className="flex items-center gap-2 font-medium text-sm">
-              <Play className="h-4 w-4 text-primary" /> Playground Preview
-            </div>
-            <Button variant="ghost" size="sm" className="h-8 text-xs">Clear Chat</Button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div className="flex w-max max-w-[80%] flex-col gap-2 rounded-lg px-3 py-2 text-sm bg-primary text-primary-foreground ml-auto">
-              How do I invite team members?
-            </div>
-            <div className="flex w-max max-w-[80%] flex-col gap-2 rounded-lg px-3 py-2 text-sm bg-muted">
-              To invite team members to SupportGPT, follow these steps:
-              <br/><br/>
-              1. Go to the <strong>Team</strong> section in your dashboard.<br/>
-              2. Click on the <strong>Invite Users</strong> button.<br/>
-              3. Enter their email address and select their role.<br/>
-              4. Click <strong>Send Invite</strong>.
-              <br/><br/>
-              <span className="text-xs text-muted-foreground mt-2 border-t pt-2 block border-border">
-                Sources: <a href="#" className="text-primary hover:underline">Team Management Guide</a>
-              </span>
-            </div>
-          </div>
-          
-          <div className="p-4 border-t bg-background shrink-0">
-            <div className="relative">
-              <Input placeholder="Type a message to test..." className="pr-10" />
-              <Button size="icon" variant="ghost" className="absolute right-0 top-0 h-full rounded-l-none text-primary">
-                <MessageSquare className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
+          <TabsContent value="versions" className="mt-6">
+            <VersionHistory agentId={activeAgent.id} />
+          </TabsContent>
+        </Tabs>
       </div>
+
+      {/* Testing Playground Sidebar */}
+      <TestingPlayground agentId={activeAgent.id} />
     </div>
   );
 }

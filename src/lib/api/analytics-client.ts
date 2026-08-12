@@ -1,4 +1,4 @@
-import { apiClient } from './api-client';
+import { apiClient } from './client';
 
 export interface DashboardStats {
   total_conversations: number;

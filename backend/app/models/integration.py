@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Boolean, Enum, Integer
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.core.database import Base
 import enum
@@ -53,6 +53,6 @@ class IntegrationSyncLog(Base):
     error_message = Column(String(2000), nullable=True)
     payload_snapshot = Column(JSONB, nullable=True)
     
-    retry_count = Column(int, default=0)
+    retry_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

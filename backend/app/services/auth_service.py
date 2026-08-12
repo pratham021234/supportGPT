@@ -247,4 +247,41 @@ class AuthService:
         await audit_service.log_action(db, str(user.id), "Password Reset Completed", "user", str(user.id))
         return True
 
+    async def change_password(self, db: AsyncSession, user_id: str, current_password: str, new_password: str) -> bool:
+        user = await user_repo.get_with_roles(db, id=user_id)
+        if not user or not user.password_hash:
+            raise BadRequestException("User not found")
+            
+        if not verify_password(current_password, user.password_hash):
+            raise BadRequestException("Incorrect current password")
+            
+        hashed_password = get_password_hash(new_password)
+        await user_repo.update(db, db_obj=user, obj_in={"password_hash": hashed_password})
+        
+        for rt in user.refresh_tokens:
+            if not rt.is_revoked:
+                await refresh_token_repo.update(db, db_obj=rt, obj_in={"is_revoked": True})
+        await session_service.revoke_all_sessions(db, str(user.id))
+                
+        await audit_service.log_action(db, str(user.id), "Password Changed", "user", str(user.id))
+        return True
+
+    async def resend_verification(self, db: AsyncSession, email: str) -> bool:
+        user = await user_repo.get_by_email(db, email=email)
+        if not user or user.is_verified:
+            return True
+            
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=24)
+        
+        await email_verification_repo.create(db, obj_in={
+            "user_id": str(user.id),
+            "token": token,
+            "expires_at": expires_at.isoformat()
+        })
+        
+        await email_service.send_verification_email(user.email, token)
+        await audit_service.log_action(db, str(user.id), "Verification Email Resent", "user", str(user.id))
+        return True
+
 auth_service = AuthService()

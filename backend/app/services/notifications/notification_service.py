@@ -13,6 +13,7 @@ from app.repositories.ticket_repo import ticket_repo
 from app.services.analytics_service import analytics_service
 from app.services.automation.automation_service import automation_engine
 from app.services.integrations.sync_engine import sync_engine
+from app.services.messaging.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,13 @@ class DeliveryTrackingService:
             status=DeliveryStatus.DELIVERED
         )
         await delivery_repo.create(db, obj_in=delivery_in)
-        # Note: actual push to websocket happens in the router layer or via redis pubsub
+        
+        # Real-time WebSocket Dispatch
+        await websocket_manager.broadcast_to_channel("notifications", str(notification.user_id), {
+            "type": "NOTIFICATION",
+            "title": notification.title,
+            "message": notification.message
+        })
         
     async def dispatch_email(self, db: AsyncSession, notification: Notification, user_email: str):
         # Mocking email dispatch
@@ -133,12 +140,24 @@ class NotificationService:
                     
     async def get_unread(self, db: AsyncSession, user_id: str):
         return await notification_repo.get_unread_by_user(db, user_id)
+
+    async def get_user_notifications_paginated(self, db: AsyncSession, user_id: str, pagination: Any, filters: Any):
+        # We need a custom filter for user_id because get_paginated expects workspace_id by default, but we can override it if the base repo handles it, or just use custom query building
+        # Wait, BaseRepository get_paginated accepts **kwargs for additional filters like workspace_id.
+        return await notification_repo.get_paginated(db, pagination=pagination, filters=filters, user_id=user_id)
         
     async def mark_as_read(self, db: AsyncSession, notification_id: str):
         notif = await notification_repo.get(db, id=notification_id)
         if notif:
             return await notification_repo.update(db, db_obj=notif, obj_in={"status": NotificationStatus.READ})
         return None
+
+    async def delete_notification(self, db: AsyncSession, notification_id: str) -> bool:
+        notif = await notification_repo.get(db, id=notification_id)
+        if notif:
+            await notification_repo.remove(db, id=notification_id)
+            return True
+        return False
 
 event_bus = EventBusService()
 preference_service = PreferenceService()

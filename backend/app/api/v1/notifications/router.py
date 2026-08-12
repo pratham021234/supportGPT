@@ -11,6 +11,7 @@ from app.models.workspace import WorkspaceMember
 from app.services.notifications.notification_service import (
     event_bus, notification_service, preference_service
 )
+from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 
 router = APIRouter()
 
@@ -36,7 +37,16 @@ async def publish_event(
     )
     return {"message": "Event published"}
 
-@router.get("/")
+@router.get("/", response_model=PaginatedResponse[Any])
+async def list_notifications(
+    pagination: PaginationParams = Depends(),
+    filters: FilterParams = Depends(),
+    member: WorkspaceMember = Depends(require_permission("view_notifications")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await notification_service.get_user_notifications_paginated(db, str(member.user_id), pagination, filters)
+
+@router.get("/unread")
 async def get_unread_notifications(
     member: WorkspaceMember = Depends(require_permission("view_notifications")),
     db: AsyncSession = Depends(get_db)
@@ -53,6 +63,17 @@ async def mark_notification_read(
     if not notif:
         raise HTTPException(status_code=404, detail="Notification not found")
     return {"message": "Marked as read"}
+
+@router.delete("/{id}")
+async def delete_notification(
+    id: str,
+    member: WorkspaceMember = Depends(require_permission("view_notifications")),
+    db: AsyncSession = Depends(get_db)
+):
+    success = await notification_service.delete_notification(db, id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"message": "Notification deleted"}
 
 @router.get("/preferences")
 async def get_preferences(

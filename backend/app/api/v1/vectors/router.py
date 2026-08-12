@@ -12,6 +12,9 @@ from app.services.vector.search_service import search_service
 from app.services.vector.qdrant_service import qdrant_service
 from app.services.vector.embedding_service import embedding_service
 from app.services.vector.provider import embedding_provider
+from app.services.vector.health_service import vector_health_service
+from app.services.vector.reindex_service import reindex_service
+from app.services.vector.batch_service import batch_embedding_service
 
 router = APIRouter()
 
@@ -19,6 +22,7 @@ class SearchQuery(BaseModel):
     query: str
     limit: int = 10
     document_id: Optional[str] = None
+    agent_id: Optional[str] = None
 
 @router.post("/search/semantic")
 async def semantic_search(
@@ -33,7 +37,8 @@ async def semantic_search(
         user_id=str(member.user_id),
         query=query.query,
         limit=query.limit,
-        document_id=query.document_id
+        document_id=query.document_id,
+        agent_id=query.agent_id
     )
     return {"results": results}
 
@@ -72,3 +77,30 @@ async def create_embedding_job(
     )
     
     return {"job_id": job.id, "status": "QUEUED"}
+
+@router.get("/health")
+async def get_vector_health(
+    member: WorkspaceMember = Depends(require_permission("knowledge:read"))
+):
+    """Returns cluster health for vector services."""
+    return vector_health_service.get_cluster_health()
+
+@router.post("/reindex")
+async def queue_reindex(
+    background_tasks: BackgroundTasks,
+    member: WorkspaceMember = Depends(require_permission("knowledge:write")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Queues a reindex of all existing documents without dropping the collection."""
+    count = await batch_embedding_service.queue_workspace_reindex(db, str(member.workspace_id), background_tasks)
+    return {"status": "QUEUED", "jobs_created": count}
+
+@router.post("/rebuild")
+async def rebuild_collection(
+    background_tasks: BackgroundTasks,
+    member: WorkspaceMember = Depends(require_permission("knowledge:write")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Drops the entire workspace collection and re-embeds everything."""
+    count = await reindex_service.rebuild_workspace_collection(db, str(member.workspace_id), background_tasks)
+    return {"status": "REBUILD_QUEUED", "jobs_created": count}

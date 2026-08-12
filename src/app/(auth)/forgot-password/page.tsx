@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation } from "@tanstack/react-query";
+import { authService } from "@/lib/api/auth";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -16,14 +18,34 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Loader2, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address" }),
 });
 
 export default function ForgotPasswordPage() {
-  const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (cooldown > 0) {
+      timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  const resetMutation = useMutation({
+    mutationFn: authService.forgotPassword,
+    onSuccess: () => {
+      setIsSubmitted(true);
+      setCooldown(60); // 60 seconds cooldown
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to send reset link");
+    },
+  });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -33,11 +55,7 @@ export default function ForgotPasswordPage() {
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsLoading(false);
-    setIsSubmitted(true);
+    resetMutation.mutate(values.email);
   }
 
   if (isSubmitted) {
@@ -50,9 +68,20 @@ export default function ForgotPasswordPage() {
             We sent a password reset link to <span className="font-medium text-foreground">{form.getValues("email")}</span>
           </p>
         </div>
-        <Link href="/login" className="w-full mt-4">
-          <Button className="w-full">Back to login</Button>
-        </Link>
+        <div className="w-full mt-4 space-y-4">
+          <Button 
+            variant="outline" 
+            className="w-full" 
+            disabled={cooldown > 0 || resetMutation.isPending}
+            onClick={() => onSubmit(form.getValues())}
+          >
+            {resetMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {cooldown > 0 ? `Resend email in ${cooldown}s` : "Click to resend"}
+          </Button>
+          <Link href="/login" className="inline-block w-full">
+            <Button className="w-full">Back to login</Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -81,8 +110,8 @@ export default function ForgotPasswordPage() {
               </FormItem>
             )}
           />
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Send reset link"}
+          <Button type="submit" className="w-full" disabled={resetMutation.isPending}>
+            {resetMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Send reset link"}
           </Button>
         </form>
       </Form>

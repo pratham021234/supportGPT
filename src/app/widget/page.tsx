@@ -6,13 +6,15 @@ import { Send, User, Bot, Loader2, X, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { widgetClient, WidgetConfig } from "@/lib/api/widget-client";
+import { API_BASE_URL } from "@/lib/api/client";
 
 export default function WidgetPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get("workspaceId");
   const agentId = searchParams.get("agentId") || "default";
   
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfig] = useState<WidgetConfig | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   
@@ -33,8 +35,7 @@ export default function WidgetPage() {
       
       // 1. Fetch Config
       try {
-        const confRes = await fetch(`http://localhost:8000/api/v1/widget/config/${agentId}`);
-        const confData = await confRes.json();
+        const confData = await widgetClient.getPublicConfig(agentId);
         setConfig(confData);
         
         // Notify parent iframe about config to change launcher color
@@ -45,21 +46,11 @@ export default function WidgetPage() {
       
       // 2. Initialize Session
       try {
-        const sesRes = await fetch(`http://localhost:8000/api/v1/widget/session`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workspace_id: workspaceId, agent_id: agentId })
-        });
-        const sesData = await sesRes.json();
+        const sesData = await widgetClient.initSession({ workspace_id: workspaceId, agent_id: agentId });
         setSessionToken(sesData.session_token);
         
         // 3. Start Conversation
-        const convRes = await fetch(`http://localhost:8000/api/v1/widget/conversations`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_token: sesData.session_token })
-        });
-        const convData = await convRes.json();
+        const convData = await widgetClient.startConversation(sesData.session_token);
         setConversationId(convData.conversation_id);
         
       } catch(e) {
@@ -73,8 +64,9 @@ export default function WidgetPage() {
   useEffect(() => {
     if (!conversationId) return;
     
-    // Connect WebSocket
-    const socket = new WebSocket(`ws://localhost:8000/api/v1/conversations/${conversationId}/ws`);
+    // Connect WebSocket using robust URL retrieval
+    const baseUrl = API_BASE_URL.replace(/^http/, 'ws');
+    const socket = new WebSocket(`${baseUrl}/conversations/${conversationId}/ws`);
     
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -119,7 +111,6 @@ export default function WidgetPage() {
         try {
             const data = JSON.parse(e.data);
             if (data.type === "supportgpt:identify") {
-                // In a real implementation, we would send this payload to a backend endpoint to update the Customer record.
                 console.log("Identified user:", data.payload);
             }
         } catch(err) {}
@@ -131,7 +122,6 @@ export default function WidgetPage() {
   const handleSend = () => {
     if (!input.trim() || !ws) return;
     
-    // We send via WS instead of POST so it uses realtime_service logic
     ws.send(JSON.stringify({ text: input }));
     setInput("");
   };
@@ -147,7 +137,7 @@ export default function WidgetPage() {
       {/* Header */}
       <div 
         className="flex items-center justify-between px-4 py-4 shrink-0 transition-colors"
-        style={{ backgroundColor: config.primary_color, color: "#fff" }}
+        style={{ backgroundColor: config.primary_color || '#000000', color: "#fff" }}
       >
         <div className="flex items-center space-x-3">
             {config.logo_url ? (
@@ -158,7 +148,7 @@ export default function WidgetPage() {
                 </div>
             )}
           <div>
-            <h1 className="font-semibold text-sm leading-tight">{config.launcher_text}</h1>
+            <h1 className="font-semibold text-sm leading-tight">{config.launcher_text || "Chat with us"}</h1>
             <p className="text-xs opacity-80 leading-tight">Usually replies instantly</p>
           </div>
         </div>
@@ -170,14 +160,16 @@ export default function WidgetPage() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50 scroll-smooth">
         {/* Welcome Message */}
-        <div className="flex items-start space-x-2">
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                <Bot className="w-4 h-4 text-blue-600" />
-            </div>
-            <div className="bg-white border rounded-2xl rounded-tl-sm px-4 py-2 shadow-sm text-sm max-w-[85%]">
-                {config.welcome_message}
-            </div>
-        </div>
+        {config.welcome_message && (
+          <div className="flex items-start space-x-2">
+              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                  <Bot className="w-4 h-4 text-blue-600" />
+              </div>
+              <div className="bg-white border rounded-2xl rounded-tl-sm px-4 py-2 shadow-sm text-sm max-w-[85%] whitespace-pre-wrap">
+                  {config.welcome_message}
+              </div>
+          </div>
+        )}
         
         {messages.map((msg, idx) => (
           <div 
@@ -195,14 +187,14 @@ export default function WidgetPage() {
             
             <div 
                 className={cn(
-                    "px-4 py-2 text-sm shadow-sm max-w-[85%]",
+                    "px-4 py-2 text-sm shadow-sm max-w-[85%] whitespace-pre-wrap",
                     msg.sender === "CUSTOMER" 
                         ? "bg-zinc-900 text-white rounded-2xl rounded-tr-sm" 
                         : msg.sender === "SYSTEM"
                             ? "bg-amber-50 text-amber-900 border border-amber-200 rounded-xl text-xs mx-auto w-full text-center"
                             : "bg-white border rounded-2xl rounded-tl-sm"
                 )}
-                style={msg.sender === "CUSTOMER" ? { backgroundColor: config.primary_color } : {}}
+                style={msg.sender === "CUSTOMER" ? { backgroundColor: config.primary_color || '#000000' } : {}}
             >
                 {msg.content}
             </div>
@@ -240,13 +232,16 @@ export default function WidgetPage() {
             size="icon" 
             disabled={!input.trim() || !ws}
             className="absolute right-1 top-1 w-8 h-8 rounded-full"
-            style={{ backgroundColor: config.primary_color }}
+            style={{ backgroundColor: config.primary_color || '#000000' }}
           >
             <Send className="w-4 h-4" />
           </Button>
         </form>
-        <div className="text-center mt-2">
+        <div className="text-center mt-2 flex justify-between items-center px-1">
             <span className="text-[10px] text-zinc-400 font-medium tracking-wide uppercase">Powered by SupportGPT</span>
+            <Button variant="link" className="text-[10px] h-auto p-0 text-zinc-400" onClick={() => {
+              if (ws) ws.send(JSON.stringify({ type: "system", action: "handoff" }));
+            }}>Talk to human</Button>
         </div>
       </div>
     </div>

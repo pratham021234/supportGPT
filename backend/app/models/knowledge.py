@@ -4,6 +4,7 @@ from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Enum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.models.mixins import TimestampMixin, SoftDeleteMixin, AuditMixin
 import enum
 
 class SourceType(str, enum.Enum):
@@ -22,29 +23,25 @@ class DocumentStatus(str, enum.Enum):
     FAILED = "FAILED"
     ARCHIVED = "ARCHIVED"
 
-class KnowledgeSource(Base):
+class KnowledgeSource(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "knowledge_sources"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     source_type = Column(Enum(SourceType), nullable=False)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.UPLOADED, nullable=False)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
     workspace = relationship("Workspace")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys="[KnowledgeSource.created_by]")
     documents = relationship("Document", back_populates="source", cascade="all, delete-orphan")
 
-class Document(Base):
+class Document(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "documents"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=True, index=True)
     title = Column(String(500), nullable=False)
     file_name = Column(String(500), nullable=True)
     file_type = Column(String(100), nullable=True)
@@ -64,68 +61,63 @@ class Document(Base):
 
     workspace = relationship("Workspace")
     source = relationship("KnowledgeSource", back_populates="documents")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys="[Document.created_by]")
     pages = relationship("DocumentPage", back_populates="document", cascade="all, delete-orphan")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
     
     # Document tags mapping
     tags = relationship("KnowledgeTag", secondary="document_tags", back_populates="documents")
 
-class DocumentPage(Base):
+class DocumentPage(Base, TimestampMixin):
     __tablename__ = "document_pages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     page_number = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     metadata_ = Column("metadata", JSONB, nullable=True)  # Using metadata_ since metadata is reserved in SQLAlchemy Base
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     document = relationship("Document", back_populates="pages")
     chunks = relationship("DocumentChunk", back_populates="page")
 
-class DocumentChunk(Base):
+class DocumentChunk(Base, TimestampMixin):
     __tablename__ = "document_chunks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     page_id = Column(UUID(as_uuid=True), ForeignKey("document_pages.id", ondelete="SET NULL"), nullable=True)
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     token_count = Column(Integer, nullable=True)
     chunk_type = Column(String(50), nullable=True) # e.g. TEXT, TABLE, HEADER
     metadata_ = Column("metadata", JSONB, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     workspace = relationship("Workspace")
 
     document = relationship("Document", back_populates="chunks")
     page = relationship("DocumentPage", back_populates="chunks")
 
-class FAQ(Base):
+class FAQ(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     __tablename__ = "faqs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
     category = Column(String(255), nullable=True)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     workspace = relationship("Workspace")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys="[FAQ.created_by]")
 
-class KnowledgeTag(Base):
+class KnowledgeTag(Base, TimestampMixin):
     __tablename__ = "knowledge_tags"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     description = Column(String(255), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     workspace = relationship("Workspace")
     documents = relationship("Document", secondary="document_tags", back_populates="tags")

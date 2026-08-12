@@ -39,6 +39,7 @@ class QdrantService:
             self.client.create_payload_index(collection_name, "document_id", field_schema="keyword")
             self.client.create_payload_index(collection_name, "source_type", field_schema="keyword")
             self.client.create_payload_index(collection_name, "language", field_schema="keyword")
+            self.client.create_payload_index(collection_name, "agent_id", field_schema="keyword")
 
     def upsert_vectors(self, workspace_id: str, points: List[rest.PointStruct]):
         """Upserts a list of vectors to the workspace's collection."""
@@ -76,11 +77,12 @@ class QdrantService:
         workspace_id: str, 
         query_vector: List[float], 
         limit: int = 10,
-        document_id: Optional[str] = None
+        document_id: Optional[str] = None,
+        agent_id: Optional[str] = None
     ) -> List[Any]:
         """
         Performs a semantic search on a workspace collection.
-        Optionally filters by document_id.
+        Optionally filters by document_id and agent_id for strict isolation.
         """
         collection_name = self._get_collection_name(workspace_id)
         
@@ -90,6 +92,17 @@ class QdrantService:
                 rest.FieldCondition(
                     key="document_id",
                     match=rest.MatchValue(value=document_id)
+                )
+            )
+            
+        if agent_id:
+            # Vectors belong either to no agent (global workspace) OR the specific agent
+            # For strict isolation: if agent_id is provided, limit search to that agent + global
+            # For this MVP: exact match on agent_id
+            filter_must.append(
+                rest.FieldCondition(
+                    key="agent_id",
+                    match=rest.MatchValue(value=agent_id)
                 )
             )
             

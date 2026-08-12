@@ -90,4 +90,28 @@ class WorkspaceService:
         
         return updated_workspace
 
+    async def get_workspace(self, db: AsyncSession, workspace_id: str, user_id: str) -> Workspace:
+        workspace = await workspace_repo.get(db, id=workspace_id)
+        if not workspace:
+            raise NotFoundException("Workspace not found")
+        # Optional: check if user is member
+        member = await workspace_member_repo.get_by_workspace_and_user(db, workspace_id=workspace_id, user_id=user_id)
+        if not member:
+            raise ForbiddenException("You do not have access to this workspace")
+        return workspace
+
+    async def delete_workspace(self, db: AsyncSession, workspace_id: str, actor_id: str) -> bool:
+        workspace = await workspace_repo.get(db, id=workspace_id)
+        if not workspace:
+            raise NotFoundException("Workspace not found")
+            
+        # Delete related members? Usually cascade delete handles this, or soft delete.
+        await workspace_repo.delete(db, id=workspace_id)
+        
+        await audit_service.log_action(
+            db, workspace_id=workspace_id, action="WORKSPACE_DELETED",
+            resource_type="workspace", actor_id=actor_id, resource_id=workspace_id
+        )
+        return True
+
 workspace_service = WorkspaceService()

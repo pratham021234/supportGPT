@@ -33,6 +33,13 @@ class UsageRecordInternalCreate(BaseModel):
     metric_name: str
     metric_value: float = 1.0
 
+class InvoiceInternalCreate(BaseModel):
+    workspace_id: str
+    amount_due: float
+    amount_paid: float
+    status: str
+    stripe_invoice_id: Optional[str] = None
+
 class PlanRepository(BaseRepository[Plan, PlanInternalCreate, BaseModel]):
     pass
 
@@ -52,6 +59,13 @@ class UsageRecordRepository(BaseRepository[UsageRecord, UsageRecordInternalCreat
         result = await db.execute(query)
         return result.scalar() or 0.0
 
+class InvoiceRepository(BaseRepository[Invoice, InvoiceInternalCreate, BaseModel]):
+    async def get_by_workspace(self, db: AsyncSession, workspace_id: str) -> List[Invoice]:
+        query = select(self.model).where(self.model.workspace_id == workspace_id)
+        result = await db.execute(query)
+        return list(result.scalars().all())
+
 plan_repo = PlanRepository(Plan)
 subscription_repo = SubscriptionRepository(Subscription)
 usage_record_repo = UsageRecordRepository(UsageRecord)
+invoice_repo = InvoiceRepository(Invoice)

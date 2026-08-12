@@ -28,6 +28,13 @@ class ConversationService:
         
         return conv
 
+    async def get_workspace_conversations_paginated(
+        self, db: AsyncSession, workspace_id: str, pagination: Any, filters: Any
+    ):
+        return await conversation_repo.get_paginated(
+            db, pagination=pagination, filters=filters, workspace_id=workspace_id
+        )
+
     async def get_workspace_conversations(
         self, 
         db: AsyncSession, 
@@ -65,13 +72,14 @@ class ConversationService:
         
         return updated_conv
 
-    async def add_message(self, db: AsyncSession, conversation_id: str, sender_type: SenderType, content: str, sender_id: Optional[str] = None, message_type: MessageType = MessageType.TEXT) -> Message:
+    async def add_message(self, db: AsyncSession, conversation_id: str, sender_type: SenderType, content: str, sender_id: Optional[str] = None, message_type: MessageType = MessageType.TEXT, metadata_: Optional[Dict[str, Any]] = None) -> Message:
         msg_in = MessageInternalCreate(
             conversation_id=conversation_id,
             sender_type=sender_type,
             sender_id=sender_id,
             content=content,
-            message_type=message_type
+            message_type=message_type,
+            metadata_=metadata_
         )
         msg = await message_repo.create(db, obj_in=msg_in)
         
@@ -104,6 +112,29 @@ class ConversationService:
             comment=comment
         )
         return await customer_feedback_repo.create(db, obj_in=fb_in)
+
+    async def add_tag(self, db: AsyncSession, conversation_id: str, tag: str) -> Optional[Conversation]:
+        conv = await conversation_repo.get(db, id=conversation_id)
+        if not conv:
+            return None
+            
+        current_metadata = conv.metadata_ or {}
+        tags = current_metadata.get("tags", [])
+        if tag not in tags:
+            tags.append(tag)
+            current_metadata["tags"] = tags
+            return await conversation_repo.update(db, db_obj=conv, obj_in={"metadata_": current_metadata})
+        return conv
+
+    async def archive_conversation(self, db: AsyncSession, conversation_id: str) -> Optional[Conversation]:
+        # For our MVP, archive is essentially just deleting or setting a flag. We'll set a flag in metadata.
+        conv = await conversation_repo.get(db, id=conversation_id)
+        if not conv:
+            return None
+        current_metadata = conv.metadata_ or {}
+        current_metadata["archived"] = True
+        return await conversation_repo.update(db, db_obj=conv, obj_in={"metadata_": current_metadata, "status": ConversationStatus.CLOSED})
+
 
 class CustomerService:
     async def get_or_create_customer(self, db: AsyncSession, workspace_id: str, email: Optional[str] = None, name: Optional[str] = None) -> Customer:

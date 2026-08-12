@@ -35,6 +35,11 @@ class AgentService:
         
         return agent
 
+    async def get_workspace_agents_paginated(self, db: AsyncSession, workspace_id: str, pagination: Any, filters: Any):
+        return await agent_repo.get_paginated(
+            db, pagination=pagination, filters=filters, workspace_id=workspace_id
+        )
+
     async def get_workspace_agents(self, db: AsyncSession, workspace_id: str):
         """Returns all agents for a workspace."""
         return await agent_repo.get_by_workspace(db, workspace_id=workspace_id)

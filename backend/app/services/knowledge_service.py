@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import UploadFile
 from uuid import UUID
@@ -28,6 +28,13 @@ class KnowledgeService:
             created_by=user_id
         )
         return await knowledge_source_repo.create(db, obj_in=internal_in)
+
+    async def get_workspace_sources_paginated(
+        self, db: AsyncSession, workspace_id: str, pagination: Any, filters: Any
+    ) -> dict:
+        return await knowledge_source_repo.get_paginated(
+            db, pagination=pagination, filters=filters, workspace_id=workspace_id
+        )
 
     async def get_workspace_sources(self, db: AsyncSession, workspace_id: str, skip: int = 0, limit: int = 100) -> List[KnowledgeSource]:
         return await knowledge_source_repo.get_by_workspace(db, workspace_id, skip, limit)
@@ -165,6 +172,13 @@ class KnowledgeService:
         await document_repo.update(db, db_obj=document, obj_in={"status": DocumentStatus.PROCESSING})
         return document
 
+    async def get_workspace_documents_paginated(
+        self, db: AsyncSession, workspace_id: str, pagination: Any, filters: Any
+    ) -> dict:
+        return await document_repo.get_paginated(
+            db, pagination=pagination, filters=filters, workspace_id=workspace_id
+        )
+
     async def get_workspace_documents(self, db: AsyncSession, workspace_id: str, skip: int = 0, limit: int = 100) -> List[Document]:
         return await document_repo.get_by_workspace(db, workspace_id, skip, limit)
     
@@ -185,6 +199,22 @@ class KnowledgeService:
         await document_repo.remove(db, id=document_id)
         return True
 
+    async def update_document(self, db: AsyncSession, document_id: str, workspace_id: str, obj_in: DocumentUpdate) -> Document:
+        document = await document_repo.get(db, id=document_id)
+        if not document or str(document.workspace_id) != workspace_id:
+            raise NotFoundException("Document not found")
+        update_data = obj_in.model_dump(exclude_unset=True)
+        return await document_repo.update(db, db_obj=document, obj_in=update_data)
+
+    async def reprocess_document(self, db: AsyncSession, document_id: str, workspace_id: str, user_id: str) -> bool:
+        doc = await self.get_document(db, document_id, workspace_id)
+        if doc.file_type == "website":
+            await self.process_website(db, workspace_id, user_id, doc.file_name, str(doc.source_id) if doc.source_id else None)
+        else:
+            if doc.storage_path:
+                await self._queue_document_processing(db, doc)
+        return True
+
     # --- FAQs ---
     async def create_faq(self, db: AsyncSession, workspace_id: str, user_id: str, obj_in: FAQCreate) -> FAQ:
         internal_in = FAQInternalCreate(
@@ -195,6 +225,13 @@ class KnowledgeService:
             created_by=user_id
         )
         return await faq_repo.create(db, obj_in=internal_in)
+
+    async def get_workspace_faqs_paginated(
+        self, db: AsyncSession, workspace_id: str, pagination: Any, filters: Any
+    ) -> dict:
+        return await faq_repo.get_paginated(
+            db, pagination=pagination, filters=filters, workspace_id=workspace_id
+        )
 
     async def get_workspace_faqs(self, db: AsyncSession, workspace_id: str, skip: int = 0, limit: int = 100) -> List[FAQ]:
         return await faq_repo.get_by_workspace(db, workspace_id, skip, limit)

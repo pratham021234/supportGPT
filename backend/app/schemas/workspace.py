@@ -20,6 +20,7 @@ class WorkspaceUpdate(BaseModel):
     logo_url: Optional[str] = None
     industry: Optional[str] = None
     website: Optional[str] = None
+    settings: Optional[dict] = None
 
 class WorkspaceResponse(WorkspaceBase):
     id: UUID
@@ -27,6 +28,7 @@ class WorkspaceResponse(WorkspaceBase):
     plan: str
     is_active: bool
     owner_id: UUID
+    settings: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 

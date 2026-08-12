@@ -7,6 +7,7 @@ from app.services.vector.search_service import search_service
 from app.services.vector.provider import embedding_provider
 from app.services.vector.qdrant_service import qdrant_service
 from qdrant_client.http import models as rest
+from app.services.rag.context_ranking import context_ranking_service
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,14 @@ class RetrievalService:
         # 2. Build metadata filters
         filter_must = []
         if agent_routing:
-            # Assume we have tags or routing embedded in payload. 
-            # For this exercise, we'll pretend it exists or skip if missing.
-            # In a real app we'd map agent_routing to source_type or a specific field.
-            pass
+            # We map this directly to the agent_id payload using the exact match.
+            # In Phase B4 we added agent_id to Qdrant.
+            filter_must.append(
+                rest.FieldCondition(
+                    key="agent_id",
+                    match=rest.MatchValue(value=agent_routing)
+                )
+            )
             
         query_filter = rest.Filter(must=filter_must) if filter_must else None
         
@@ -92,9 +97,8 @@ class RetrievalService:
                 "payload": hit.payload
             })
             
-        # 5. Sort by final score descending and take Top K
-        hybrid_results.sort(key=lambda x: x["score"], reverse=True)
-        top_results = hybrid_results[:limit]
+        # 5. Advanced Context Ranking (Phase B5)
+        top_results = context_ranking_service.rank_context(hybrid_results, agent_routing or "GLOBAL")[:limit]
         
         return top_results
 
