@@ -1,50 +1,55 @@
-# Multi-Agent Platform Audit
+# Agent Platform Audit
 
-## 1. Existing Functionality
+## Overview
+This audit assesses the current state of the Multi-Agent Platform for SupportGPT, identifying what components are implemented, partially complete, missing, broken, or stubbed.
 
-### Models & Schema
-- **Agent Models**: Comprehensive SQLAlchemy models exist in `agent.py`, including `Agent`, `AgentPrompt` (system prompt, behavior rules), `AgentModelConfig` (temperature, tokens), `AgentEscalationRule` (confidence thresholds), `AgentKnowledgeScope` (knowledge mapping), and `AgentVersion` (snapshotting).
-- **Repositories**: Standard async CRUD repositories for all Agent models are implemented in `agent_repo.py`.
+## Backend Components
+
+### Models
+**Status:** Implemented (with minor gaps)
+- **Implemented:** 
+  - `Agent`, `AgentPrompt`, `AgentVersion`, `AgentKnowledgeScope`, `AgentModelConfig`, `AgentEscalationRule`
+  - Most requested fields are present.
+- **Missing:**
+  - `settings` column (JSONB) in the `Agent` model.
 
 ### Services
-- **AgentService**: Can create an agent (auto-generating default prompts, model configs, and escalation rules) and publish an agent (serializing its state into an `AgentVersion` snapshot).
-- **PromptService**: Can fetch and update `AgentPrompt`.
+**Status:** Partially Implemented / Stubbed
+- **Implemented:** 
+  - `AgentBuilderService`: CRUD operations, cloning, version publishing, archiving.
+  - `AgentRouter`: Basic LLM-based routing using Gemini.
+  - `AgentRuntimeService`: Orchestration logic linking the router with the RAG engine.
+- **Partial / Stubbed:**
+  - `agent_performance_service.py` (Analytics)
+  - `agent_health_service.py` (Health checks)
+  - `prompt_service.py` (Referred to as `prompt_studio_service` in the router, which is broken/mismatched).
+  - `testing_service.py` (Integration is stubbed).
 
-### API Routes
-- **Agents Router**: Currently supports `POST /agents`, `GET /agents`, `POST /{id}/publish`, `PATCH /{id}/prompt`, and `POST /{id}/test`.
+### APIs
+**Status:** Implemented (with some missing backend service dependencies)
+- **Implemented:**
+  - CRUD operations (`POST /agents`, `GET /agents`, `GET /agents/{id}`, `PATCH /agents/{id}`, `DELETE /agents/{id}`).
+  - Prompt configuration, model configuration, and escalation rules endpoints.
+  - Knowledge assignment (`POST /{agent_id}/knowledge`, `DELETE /{agent_id}/knowledge/{scope_id}`).
+  - Versioning, cloning, and archiving endpoints.
+- **Broken:**
+  - `/prompt` endpoint calls `prompt_studio_service.update_prompt` which is imported incorrectly.
 
----
+## Frontend Components
 
-## 2. Missing Functionality
+### Agent Dashboard
+**Status:** Partially Implemented
+- **Implemented:** 
+  - The UI layout for the agent list (`page.tsx`) exists and is wired to `useAgents`.
+  - The agent details UI (`[id]/page.tsx`) exists with tabs for Config, Knowledge, Testing, and Analytics.
+- **Partial / Missing / Stubbed:**
+  - The underlying API hooks (`useAgent`, `useAgents`, etc.) are likely returning mock data or need validation.
+  - Sub-components such as `<PromptConfig>`, `<ModelSelector>`, `<EscalationRules>`, `<KnowledgeAssignment>`, `<AgentPlayground>`, `<AgentAnalytics>`, and `<AgentActivity>` are referenced but likely missing robust implementation or rely on mock data.
 
-### Agent Lifecycle & Management
-- **Archiving & Deletion**: No `DELETE` or `ARCHIVE` endpoints.
-- **Cloning**: Missing `POST /agents/{id}/clone` to duplicate a successful agent.
-- **Versioning Rollback**: The `agent_service.restore_version` is just a mock returning `True`. Needs to actually overwrite active configs and missing `POST /agents/{id}/rollback` endpoint.
-
-### Knowledge Assignment
-- **Knowledge API**: Missing `POST /agents/{id}/knowledge` to attach specific Documents, Tags, or Sources to `AgentKnowledgeScope`.
-- **RAG Enforcement**: The RAG engine (`testing_service.py` / Phase 6) needs to read the agent's `AgentKnowledgeScope` to restrict Qdrant vector retrieval properly instead of querying all workspace data.
-
-### Configuration APIs
-- **Model Configs**: No endpoints to edit Temperature, Tokens, Provider, Model.
-- **Escalation Configs**: No endpoints to edit Confidence Thresholds, Escalation Messages, or Auto-Handoff settings.
-
-### Agent Routing
-- **Agent Router**: No `AgentRouter` exists to dynamically route a customer to the correct agent (e.g., Sales vs. Technical) based on the query. Currently, conversations are statically assigned.
-
-### Safety & Memory
-- **Safety Layer**: Missing `AgentSafetyLayer` to protect against Prompt Injection and PII leakage.
-- **Memory**: The system currently pulls all conversation history without a specialized memory window context builder.
-
-### Analytics
-- **Agent Analytics**: Missing `GET /agents/{id}/analytics` for tracking Resolution Rate, Avg Confidence, Token Usage, etc.
-
----
-
-## 3. Required Improvements
-1. **API Expansion**: Fulfill the missing endpoints (`clone`, `rollback`, `knowledge`, `model`, `escalation`, `analytics`).
-2. **Implement Rollback Logic**: Complete the deserialization in `restore_version` to overwrite current settings with the JSONB snapshot.
-3. **Build Agent Router**: Create an LLM-powered router to evaluate customer queries and assign the correct agent if one is not already assigned to the conversation.
-4. **Build Safety Layer**: Implement prompt validation and PII obfuscation pre/post generation.
-5. **RAG Integration**: Ensure `RetrievalService` strictly filters by the `AgentKnowledgeScope` instead of just the workspace.
+## Missing & Required Action Items
+1. **Agent Model Completion:** Add `settings` JSONB column to the `Agent` model.
+2. **Fix Router Imports:** Fix `prompt_studio_service` vs `prompt_service` mismatch in `router.py`.
+3. **Agent Analytics & Health:** Fully implement `agent_performance_service` and `agent_health_service`.
+4. **Agent Types:** Expand `AgentType` if necessary to fully cover Support, Sales, Technical, HR, Billing, and Custom types.
+5. **Frontend Builder Completion:** Ensure all agent sub-components are fully functional and properly integrated with the real API endpoints.
+6. **Tests:** Create CRUD, routing, knowledge, analytics, and runtime tests to meet 90%+ coverage.

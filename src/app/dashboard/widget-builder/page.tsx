@@ -148,7 +148,25 @@ export default function WidgetBuilderPage() {
                       value={localConfig.welcome_message || ""}
                       onChange={e => setLocalConfig({...localConfig, welcome_message: e.target.value})}
                       placeholder="Hi there! How can we help you today?"
-                      rows={3}
+                      rows={2}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Offline Message</Label>
+                    <Textarea 
+                      value={localConfig.offline_message || ""}
+                      onChange={e => setLocalConfig({...localConfig, offline_message: e.target.value})}
+                      placeholder="We are currently offline."
+                      rows={2}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Suggested Questions (comma separated)</Label>
+                    <Textarea 
+                      value={localConfig.suggested_questions?.join(", ") || ""}
+                      onChange={e => setLocalConfig({...localConfig, suggested_questions: e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean)})}
+                      placeholder="How to reset password, Talk to sales"
+                      rows={2}
                     />
                   </div>
                 </CardContent>
@@ -199,6 +217,24 @@ export default function WidgetBuilderPage() {
                   <a href="#" className="flex items-center text-primary hover:underline">React Guide <ExternalLink className="w-3 h-3 ml-1"/></a>
                   <a href="#" className="flex items-center text-primary hover:underline">WordPress Guide <ExternalLink className="w-3 h-3 ml-1"/></a>
                 </CardFooter>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Security</CardTitle>
+                  <CardDescription>Restrict which domains can load your widget.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Allowed Domains (comma separated)</Label>
+                    <Input 
+                      value={localConfig.allowed_domains?.join(", ") || ""}
+                      onChange={e => setLocalConfig({...localConfig, allowed_domains: e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean)})}
+                      placeholder="example.com, app.example.com"
+                    />
+                    <p className="text-xs text-muted-foreground">If empty, the widget can be embedded anywhere.</p>
+                  </div>
+                </CardContent>
               </Card>
             </TabsContent>
 

@@ -2,7 +2,7 @@
 
 ## 1. Container & Infrastructure Security
 - **Non-Root Execution**: Both `Dockerfile.backend` and `Dockerfile.frontend` have been configured to run under a dedicated `appuser` (UID 1000) rather than root.
-- **Immutable Tags**: All base images use specific versions (e.g., `postgres:16`, `python:3.12-slim`) rather than `latest` to prevent unexpected upstream supply chain poisoning.
+- **Immutable Tags**: All base images use specific versions (e.g., `postgres:16`, `python:3.11-slim`) rather than `latest` to prevent unexpected upstream supply chain poisoning.
 - **Trivy Scanning**: The `.github/workflows/main.yml` pipeline strictly enforces a filesystem vulnerability scan, failing the build if CRITICAL or HIGH CVEs are detected in dependencies.
 
 ## 2. Application Security (API & Frontend)

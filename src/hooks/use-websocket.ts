@@ -20,6 +20,8 @@ interface WebSocketMessage {
 
 export function useConversationWebSocket(conversationId: string | null) {
   const [isConnected, setIsConnected] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const queryClient = useQueryClient();
   const { workspaceId } = useWorkspaceContext();
@@ -45,17 +47,22 @@ export function useConversationWebSocket(conversationId: string | null) {
       try {
         const data = JSON.parse(event.data) as WebSocketMessage;
         
-        // For simplicity, whenever we receive a message over WS, we invalidate the messages query
-        // so it refetches cleanly. In a real highly-scaled app, we'd optimistically push to cache.
-        queryClient.invalidateQueries({ queryKey: ['messages', workspaceId, conversationId] });
-        
-        // If it's a system event (like "resolved"), invalidate the conversation details too
-        if (data.type === 'system_event') {
+        if (data.type === 'agent_typing') {
+          setIsTyping(data.status as any as boolean);
+        } else if (data.type === 'token') {
+          setStreamingMessage(prev => prev + (data.content || ""));
+        } else if (data.type === 'message_complete' || data.type === 'message') {
+          setStreamingMessage("");
+          setIsTyping(false);
+          queryClient.invalidateQueries({ queryKey: ['messages', workspaceId, conversationId] });
+        } else if (data.type === 'system_event') {
           queryClient.invalidateQueries({ queryKey: ['conversation', workspaceId, conversationId] });
           queryClient.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+          queryClient.invalidateQueries({ queryKey: ['messages', workspaceId, conversationId] });
+        } else {
+          queryClient.invalidateQueries({ queryKey: ['messages', workspaceId, conversationId] });
         }
       } catch (err) {
-        // If it's raw text and not JSON, just invalidate messages
         queryClient.invalidateQueries({ queryKey: ['messages', workspaceId, conversationId] });
       }
     };
@@ -94,5 +101,5 @@ export function useConversationWebSocket(conversationId: string | null) {
     }
   }, [isConnected]);
 
-  return { isConnected, sendMessage };
+  return { isConnected, isTyping, streamingMessage, sendMessage };
 }

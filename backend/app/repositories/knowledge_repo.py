@@ -135,8 +135,36 @@ class KnowledgeTagRepository(BaseRepository[KnowledgeTag, KnowledgeTagInternalCr
         result = await db.execute(query)
         return result.scalars().first()
 
+class DocumentChunkInternalCreate(BaseModel):
+    workspace_id: str
+    document_id: str
+    page_id: Optional[str] = None
+    chunk_index: int
+    content: str
+    token_count: Optional[int] = None
+    character_count: Optional[int] = None
+    section: Optional[str] = None
+    page_number: Optional[int] = None
+    parent_heading: Optional[str] = None
+    chunk_type: Optional[str] = None
+    metadata_: Optional[dict] = None
+
+class DocumentChunkRepository(BaseRepository[DocumentChunk, DocumentChunkInternalCreate, BaseModel]):
+    async def get_by_document(self, db: AsyncSession, document_id: str) -> List[DocumentChunk]:
+        query = select(self.model).where(self.model.document_id == document_id).order_by(self.model.chunk_index)
+        result = await db.execute(query)
+        return list(result.scalars().all())
+
+    async def delete_by_document(self, db: AsyncSession, document_id: str) -> int:
+        from sqlalchemy import delete
+        stmt = delete(self.model).where(self.model.document_id == document_id)
+        result = await db.execute(stmt)
+        await db.commit()
+        return result.rowcount
+
 # Instances
 knowledge_source_repo = KnowledgeSourceRepository(KnowledgeSource)
 document_repo = DocumentRepository(Document)
 faq_repo = FAQRepository(FAQ)
 knowledge_tag_repo = KnowledgeTagRepository(KnowledgeTag)
+document_chunk_repo = DocumentChunkRepository(DocumentChunk)

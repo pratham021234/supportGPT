@@ -79,7 +79,7 @@ export default function TicketDetailsPage() {
               {getStatusBadge(ticket.status)}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              #{ticket.id.split('-')[0]} • Created {new Date(ticket.created_at).toLocaleString()}
+              {ticket.ticket_number} • Created {new Date(ticket.created_at).toLocaleString()}
             </p>
           </div>
         </div>
@@ -110,6 +110,7 @@ export default function TicketDetailsPage() {
                     <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
                     <SelectItem value="WAITING_CUSTOMER">Waiting on Customer</SelectItem>
                     <SelectItem value="WAITING_INTERNAL">Waiting Internal</SelectItem>
+                    <SelectItem value="ESCALATED">Escalated</SelectItem>
                     <SelectItem value="RESOLVED">Resolved</SelectItem>
                     <SelectItem value="CLOSED">Closed</SelectItem>
                   </SelectContent>
@@ -287,6 +288,18 @@ export default function TicketDetailsPage() {
                   <div className="text-[10px] text-muted-foreground">{new Date(ticket.created_at).toLocaleString()}</div>
                 </div>
               </div>
+              
+              {comments?.map((comment) => (
+                <div key={`timeline-${comment.id}`} className="relative flex items-center group">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full border border-background bg-muted text-muted-foreground shrink-0 shadow z-10">
+                    <MessageSquare className="h-3 w-3" />
+                  </div>
+                  <div className="ml-3 p-3 rounded border bg-background shadow-sm w-full">
+                    <div className="font-medium text-xs mb-1">{comment.is_internal ? "Internal Note" : "Comment Added"}</div>
+                    <div className="text-[10px] text-muted-foreground">{new Date(comment.created_at).toLocaleString()}</div>
+                  </div>
+                </div>
+              ))}
               
               {ticket.resolved_at && (
                 <div className="relative flex items-center group">

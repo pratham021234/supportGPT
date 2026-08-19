@@ -30,6 +30,8 @@ import { CreateTicketDialog } from "@/components/tickets/create-ticket-dialog";
 
 export const getPriorityBadge = (priority: TicketPriority) => {
   switch (priority) {
+    case "CRITICAL":
+      return <Badge variant="destructive" className="bg-red-700 text-white hover:bg-red-800 border-red-800">Critical</Badge>;
     case "URGENT":
       return <Badge variant="destructive" className="bg-red-600/10 text-red-600 hover:bg-red-600/20 border-red-600/20">Urgent</Badge>;
     case "HIGH":
@@ -53,6 +55,8 @@ export const getStatusBadge = (status: TicketStatus) => {
       return <Badge variant="outline" className="border-blue-500/30 text-blue-500">Waiting on Customer</Badge>;
     case "WAITING_INTERNAL":
       return <Badge variant="outline" className="border-purple-500/30 text-purple-500">Waiting Internal</Badge>;
+    case "ESCALATED":
+      return <Badge variant="destructive" className="border-red-500/30 text-red-500">Escalated</Badge>;
     case "RESOLVED":
       return <Badge variant="outline" className="border-emerald-500/30 text-emerald-500">Resolved</Badge>;
     case "CLOSED":
@@ -210,7 +214,7 @@ export default function TicketsPage() {
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     <Link href={`/dashboard/tickets/${ticket.id}`} className="hover:underline text-primary">
-                      #{ticket.id.split('-')[0]}
+                      {ticket.ticket_number}
                     </Link>
                   </TableCell>
                   <TableCell>

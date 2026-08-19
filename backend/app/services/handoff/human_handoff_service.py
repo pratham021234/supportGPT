@@ -24,8 +24,8 @@ class HumanHandoffService:
         if not conv:
             return None
             
-        # 1. Update status to WAITING
-        await conversation_engine.update_conversation(db, conversation_id, {"status": ConversationStatus.WAITING})
+        # 1. Update status to HANDOFF
+        await conversation_engine.update_conversation(db, conversation_id, {"status": ConversationStatus.HANDOFF})
         
         # 2. Record Handoff intent
         handoff_in = ConversationHandoffInternalCreate(

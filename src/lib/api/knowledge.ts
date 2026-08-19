@@ -17,6 +17,7 @@ export interface KnowledgeDocument {
   created_at: string;
   updated_at: string;
   tags: any[];
+  metadata?: any;
 }
 
 export interface WebsiteUpload {
@@ -98,6 +99,18 @@ export const knowledgeService = {
     
   getAnalytics: () => 
     apiClient.get<KnowledgeAnalytics>('/analytics/knowledge'),
+    
+  getDocumentChunks: (id: string) => 
+    apiClient.get<{chunks: any[], total: number}>(`/knowledge/documents/${id}/chunks`),
+    
+  rechunkDocument: (id: string, payload: { chunk_strategy: string, chunk_size: number, chunk_overlap: number }) => 
+    apiClient.post(`/knowledge/documents/${id}/rechunk`, payload),
+    
+  reembedDocument: (id: string) => 
+    apiClient.post(`/knowledge/documents/${id}/reembed`),
+    
+  getEmbeddingAnalytics: () => 
+    apiClient.get<any>('/analytics/embeddings'),
 };
 
 // --- Hooks ---
@@ -129,6 +142,16 @@ export const useKnowledgeHealth = () => {
     queryFn: () => knowledgeService.getHealth().then(res => res.data),
     enabled,
     staleTime: 1000 * 60,
+  });
+};
+
+export const useDocumentChunks = (id: string) => {
+  const { workspaceId, enabled } = useWorkspaceContext();
+  return useQuery({
+    queryKey: ["knowledge-document-chunks", workspaceId, id],
+    queryFn: () => knowledgeService.getDocumentChunks(id).then(res => res.data),
+    enabled: enabled && !!id,
+    staleTime: 1000 * 30,
   });
 };
 
@@ -191,6 +214,20 @@ export const useCrawlWebsite = () => {
   });
 };
 
+export const useRechunkDocument = () => {
+  const queryClient = useQueryClient();
+  const { workspaceId } = useWorkspaceContext();
+  
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string, payload: { chunk_strategy: string, chunk_size: number, chunk_overlap: number } }) => 
+      knowledgeService.rechunkDocument(id, payload),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["knowledge-document", workspaceId, id] });
+      queryClient.invalidateQueries({ queryKey: ["knowledge-document-chunks", workspaceId, id] });
+    },
+  });
+};
+
 export const useCreateFaq = () => {
   const queryClient = useQueryClient();
   const { workspaceId } = useWorkspaceContext();
@@ -226,5 +263,28 @@ export const useReprocessDocument = () => {
       queryClient.invalidateQueries({ queryKey: ["knowledge-documents", workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["knowledge-document", workspaceId, id] });
     },
+  });
+};
+
+export const useReembedDocument = () => {
+  const queryClient = useQueryClient();
+  const { workspaceId } = useWorkspaceContext();
+  
+  return useMutation({
+    mutationFn: (id: string) => knowledgeService.reembedDocument(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["knowledge-document", workspaceId, id] });
+      queryClient.invalidateQueries({ queryKey: ["knowledge-document-embeddings", workspaceId, id] });
+    },
+  });
+};
+
+export const useEmbeddingAnalytics = () => {
+  const { workspaceId, enabled } = useWorkspaceContext();
+  return useQuery({
+    queryKey: ["knowledge-embedding-analytics", workspaceId],
+    queryFn: () => knowledgeService.getEmbeddingAnalytics().then(res => res.data),
+    enabled,
+    staleTime: 1000 * 60,
   });
 };

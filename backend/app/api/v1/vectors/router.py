@@ -21,8 +21,7 @@ router = APIRouter()
 class SearchQuery(BaseModel):
     query: str
     limit: int = 10
-    document_id: Optional[str] = None
-    agent_id: Optional[str] = None
+    filters: Optional[Dict[str, Any]] = None
 
 @router.post("/search/semantic")
 async def semantic_search(
@@ -37,10 +36,48 @@ async def semantic_search(
         user_id=str(member.user_id),
         query=query.query,
         limit=query.limit,
-        document_id=query.document_id,
-        agent_id=query.agent_id
+        filters=query.filters
     )
     return {"results": results}
+
+@router.post("/search/hybrid")
+async def hybrid_search(
+    query: SearchQuery,
+    member: WorkspaceMember = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Executes a hybrid search (semantic + keyword) via RRF fusion."""
+    results = await search_service.hybrid_search(
+        db=db,
+        workspace_id=str(member.workspace_id),
+        user_id=str(member.user_id),
+        query=query.query,
+        limit=query.limit,
+        filters=query.filters
+    )
+    return {"results": results}
+
+@router.get("/search/analytics")
+async def get_search_analytics(
+    member: WorkspaceMember = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Returns basic search analytics for the workspace."""
+    from app.repositories.vector_repo import search_event_repo
+    
+    events = await search_event_repo.get_by_workspace(db, str(member.workspace_id))
+    
+    total_searches = len(events)
+    semantic_count = sum(1 for e in events if e.search_type == "SEMANTIC")
+    hybrid_count = sum(1 for e in events if e.search_type == "HYBRID")
+    avg_latency = sum(e.latency_ms or 0 for e in events) / total_searches if total_searches else 0
+    
+    return {
+        "total_searches": total_searches,
+        "semantic_count": semantic_count,
+        "hybrid_count": hybrid_count,
+        "avg_latency_ms": int(avg_latency)
+    }
 
 @router.get("/collections/stats")
 async def collection_stats(

@@ -1,40 +1,39 @@
-FROM python:3.12-slim
+# ---- Build Stage ----
+FROM python:3.11-slim as builder
 
-# Prevent python from writing pyc files to disc
-ENV PYTHONDONTWRITEBYTECODE=1
-# Prevent python from buffering stdout and stderr
-ENV PYTHONUNBUFFERED=1
+WORKDIR /build
 
-WORKDIR /app
-
-# Install system dependencies required for start.sh and some python packages
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-client \
-    redis-tools \
-    curl \
-    build-essential \
+    gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies
-COPY backend/requirements.txt /app/
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt .
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels -r requirements.txt
 
-# Create a non-root user
-RUN useradd -m appuser
+# ---- Runtime Stage ----
+FROM python:3.11-slim
 
-# Copy application code
-COPY backend/ /app/
+WORKDIR /app
 
-# Set permissions for start.sh
-RUN chmod +x /app/start.sh
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Change ownership of the app directory to the non-root user
-RUN chown -R appuser:appuser /app
+# Copy pre-built wheels and install
+COPY --from=builder /build/wheels /wheels
+COPY backend/requirements.txt .
+RUN pip install --no-cache /wheels/*
 
-USER appuser
+COPY backend/ .
+
+# Run as non-root user
+RUN useradd -m supportgpt
+USER supportgpt
 
 EXPOSE 8000
 
-ENTRYPOINT ["/app/start.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -11,7 +11,11 @@ from app.services.ticketing.ticket_creation_service import ticket_creation_servi
 from app.services.ticketing.ticket_workflow_service import ticket_workflow_service
 from app.services.ticketing.sla_service import sla_service
 from app.services.ticketing.internal_note_service import internal_note_service
-from app.repositories.ticket_repo import ticket_repo
+from app.services.ticketing.escalation_service import ticket_escalation_service
+from app.services.ticketing.assignment_service import ticket_assignment_service
+from app.services.ticketing.ticket_search_service import ticket_search_service
+from app.services.ticketing.ticket_analytics_service import ticket_analytics_service
+from app.repositories.ticket_repo import ticket_repo, ticket_attachment_repo, TicketAttachmentInternalCreate
 from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 
 router = APIRouter()
@@ -38,7 +42,20 @@ class TicketStatusUpdate(BaseModel):
     status: TicketStatus
 
 class TicketAssignRequest(BaseModel):
-    assigned_user_id: str
+    assigned_user_id: Optional[str] = None
+    strategy: Optional[str] = "MANUAL" # MANUAL, AUTO_LEAST_ACTIVE
+
+class TicketEscalateRequest(BaseModel):
+    reason: str
+
+class BulkActionRequest(BaseModel):
+    ticket_ids: List[str]
+    action: str
+    data: Optional[Dict[str, Any]] = None
+
+class TicketAttachmentRequest(BaseModel):
+    file_name: str
+    file_type: str
 
 @router.post("")
 async def create_ticket(
@@ -53,6 +70,27 @@ async def create_ticket(
         created_by=str(member.user_id)
     )
     return ticket
+
+@router.get("/search")
+async def search_tickets(
+    query: Optional[str] = None,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    tag: Optional[str] = None,
+    member: WorkspaceMember = Depends(require_permission("view_tickets")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await ticket_search_service.search_tickets(db, str(member.workspace_id), query, status, priority, assigned_to, tag)
+
+@router.get("/analytics")
+async def get_ticket_analytics(
+    member: WorkspaceMember = Depends(require_permission("view_tickets")),
+    db: AsyncSession = Depends(get_db)
+):
+    analytics = await ticket_analytics_service.get_analytics(db, str(member.workspace_id))
+    gaps = await ticket_analytics_service.get_knowledge_gaps(db, str(member.workspace_id))
+    return {"analytics": analytics, "knowledge_gaps": gaps}
 
 @router.get("", response_model=PaginatedResponse[Any])
 async def list_tickets(
@@ -167,10 +205,70 @@ async def assign_ticket(
     member: WorkspaceMember = Depends(require_permission("manage_tickets")),
     db: AsyncSession = Depends(get_db)
 ):
-    ticket = await ticket_workflow_service.assign_ticket(db, ticket_id, req.assigned_user_id, str(member.user_id))
+    ticket = await ticket_repo.get(db, id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+        
+    if req.strategy == "AUTO_LEAST_ACTIVE":
+        await ticket_assignment_service.auto_assign_least_active(db, ticket)
+    else:
+        if not req.assigned_user_id:
+            raise HTTPException(status_code=400, detail="assigned_user_id required for MANUAL assignment")
+        await ticket_assignment_service.assign_ticket_manual(db, ticket_id, req.assigned_user_id, str(member.user_id))
+        
+    return await ticket_repo.get(db, id=ticket_id)
+
+@router.post("/{ticket_id}/escalate")
+async def escalate_ticket(
+    ticket_id: str,
+    req: TicketEscalateRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_tickets")),
+    db: AsyncSession = Depends(get_db)
+):
+    ticket = await ticket_escalation_service.escalate_ticket(db, ticket_id, req.reason, str(member.user_id))
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
+
+@router.post("/{ticket_id}/attachments")
+async def upload_attachment(
+    ticket_id: str,
+    req: TicketAttachmentRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_tickets")),
+    db: AsyncSession = Depends(get_db)
+):
+    # Mocking actual S3 upload
+    s3_url = f"https://s3.amazonaws.com/mock-bucket/tickets/{ticket_id}/{req.file_name}"
+    att_in = TicketAttachmentInternalCreate(
+        workspace_id=str(member.workspace_id),
+        ticket_id=ticket_id,
+        uploaded_by=str(member.user_id),
+        file_name=req.file_name,
+        file_type=req.file_type,
+        s3_url=s3_url
+    )
+    attachment = await ticket_attachment_repo.create(db, obj_in=att_in)
+    return attachment
+
+@router.post("/bulk")
+async def bulk_actions(
+    req: BulkActionRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_tickets")),
+    db: AsyncSession = Depends(get_db)
+):
+    # Example minimal implementation for bulk assign
+    results = []
+    for tid in req.ticket_ids:
+        ticket = await ticket_repo.get(db, id=tid)
+        if not ticket or str(ticket.workspace_id) != str(member.workspace_id):
+            continue
+            
+        if req.action == "assign" and req.data and "assigned_user_id" in req.data:
+            await ticket_assignment_service.assign_ticket_manual(db, tid, req.data["assigned_user_id"], str(member.user_id))
+        elif req.action == "close":
+            await ticket_workflow_service.update_status(db, tid, TicketStatus.CLOSED, str(member.user_id))
+        results.append(tid)
+    return {"message": "Bulk action complete", "processed": results}
 
 @router.post("/{ticket_id}/resolve")
 async def resolve_ticket(

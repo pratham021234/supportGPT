@@ -41,7 +41,7 @@ This command will:
 ## Infrastructure Components
 
 - **Frontend**: Next.js 16 app built as a multi-stage Docker image, running on node:22.
-- **Backend**: FastAPI app running on Python 3.12 with uvicorn. It checks dependency health before running migrations via `start.sh`.
+- **Backend**: FastAPI app running on Python 3.11 with uvicorn. It checks dependency health before running migrations via `start.sh`.
 - **Database (PostgreSQL 16)**: Holds all relational data. Data is persisted in the `postgres_data` volume.
 - **Redis 7**: Used for caching and rate limiting. Data is persisted in the `redis_data` volume.
 - **Qdrant**: Used as the vector database for RAG operations. Data is persisted in the `qdrant_data` volume on port 6333.

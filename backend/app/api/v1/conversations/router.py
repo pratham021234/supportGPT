@@ -16,6 +16,7 @@ from app.services.messaging.conversation_search_service import conversation_sear
 from app.services.handoff.human_handoff_service import human_handoff_service
 from app.services.ticketing.ticket_creation_service import ticket_creation_service
 from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
+from app.services.billing.billing_service import plan_enforcement_service, usage_tracking_service
 import json
 
 router = APIRouter()
@@ -68,12 +69,18 @@ async def create_conversation(
     member: WorkspaceMember = Depends(require_permission("manage_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
+    try:
+        await plan_enforcement_service.check_limit(db, str(member.workspace_id), "conversations", 1.0)
+    except plan_enforcement_service.LimitExceededError as e:
+        raise HTTPException(status_code=402, detail=str(e))
+        
     conv = await conversation_engine.create_conversation(
         db=db,
         workspace_id=str(member.workspace_id),
         customer_id=req.customer_id,
         agent_id=req.agent_id
     )
+    await usage_tracking_service.track_usage(db, str(member.workspace_id), "conversations", 1.0)
     return conv
 
 @router.get("", response_model=PaginatedResponse[Any])
@@ -97,6 +104,39 @@ async def search_conversations(
     db: AsyncSession = Depends(get_db)
 ):
     return await conversation_search_service.search_conversations(db, str(member.workspace_id), query)
+
+@router.get("/analytics")
+async def get_conversation_analytics(
+    member: WorkspaceMember = Depends(require_permission("view_conversations")),
+    db: AsyncSession = Depends(get_db)
+):
+    from sqlalchemy import func, select
+    from app.models.conversation import Conversation
+    
+    workspace_id = str(member.workspace_id)
+    
+    # Very basic aggregation for MVP
+    stmt = select(
+        func.count(Conversation.id).label("total_conversations"),
+        func.count(Conversation.id).filter(Conversation.status != ConversationStatus.CLOSED).filter(Conversation.status != ConversationStatus.RESOLVED).label("open_conversations"),
+        func.count(Conversation.id).filter(Conversation.status == ConversationStatus.RESOLVED).label("resolved_conversations"),
+        func.count(Conversation.id).filter(Conversation.status == ConversationStatus.ESCALATED).label("escalations")
+    ).where(Conversation.workspace_id == workspace_id)
+    
+    res = await db.execute(stmt)
+    row = res.one()
+    
+    total = row.total_conversations or 0
+    resolved = row.resolved_conversations or 0
+    
+    return {
+        "total_conversations": total,
+        "open_conversations": row.open_conversations or 0,
+        "resolved_conversations": resolved,
+        "escalations": row.escalations or 0,
+        "average_resolution_time_mins": 45.2, # Mocked metric for MVP
+        "ai_resolution_rate": round((resolved / total * 100), 2) if total > 0 else 0.0
+    }
 
 @router.get("/{conversation_id}")
 async def get_conversation(
@@ -125,7 +165,7 @@ async def add_manual_message(
     member: WorkspaceMember = Depends(require_permission("manage_conversations")),
     db: AsyncSession = Depends(get_db)
 ):
-    sender = SenderType.SYSTEM if req.is_internal else SenderType.SUPPORT_AGENT
+    sender = SenderType.SYSTEM if req.is_internal else SenderType.AGENT
     msg = await message_service.store_message(
         db=db,
         conversation_id=conversation_id,

@@ -83,3 +83,36 @@ async def get_rag_analytics(
         "avg_confidence": round(avg_confidence, 2),
         "total_escalations": total_escalations
     }
+
+@router.get("/health")
+async def get_rag_health(
+    member: WorkspaceMember = Depends(require_permission("query_knowledge")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the health status of the RAG engine and LLM provider connection.
+    """
+    from app.services.vector.qdrant_service import qdrant_service
+    from app.services.llm.orchestrator import llm_orchestrator
+    
+    # 1. Check Vector DB
+    try:
+        qdrant_stats = qdrant_service.get_collection_stats(str(member.workspace_id))
+        vector_db_status = "healthy"
+    except Exception:
+        vector_db_status = "unhealthy"
+        qdrant_stats = None
+        
+    # 2. Check LLM Provider
+    llm_status = "healthy" if llm_orchestrator.structured_llm else "unconfigured"
+    
+    status = "healthy" if vector_db_status == "healthy" and llm_status == "healthy" else "degraded"
+    
+    return {
+        "status": status,
+        "components": {
+            "vector_database": vector_db_status,
+            "llm_provider": llm_status
+        },
+        "vector_stats": qdrant_stats
+    }

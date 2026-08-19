@@ -18,18 +18,21 @@ class SLAService:
         # Define SLA tiers in minutes (First Response, Resolution)
         sla_matrix = {
             "silver": {
+                TicketPriority.CRITICAL: (30, 120),
                 TicketPriority.URGENT: (60, 240),
                 TicketPriority.HIGH: (120, 480),
                 TicketPriority.MEDIUM: (480, 1440),
                 TicketPriority.LOW: (1440, 2880)
             },
             "gold": {
+                TicketPriority.CRITICAL: (15, 60),
                 TicketPriority.URGENT: (30, 120),
                 TicketPriority.HIGH: (60, 240),
                 TicketPriority.MEDIUM: (240, 720),
                 TicketPriority.LOW: (720, 1440)
             },
             "enterprise": {
+                TicketPriority.CRITICAL: (5, 30),
                 TicketPriority.URGENT: (15, 60),
                 TicketPriority.HIGH: (30, 120),
                 TicketPriority.MEDIUM: (60, 240),

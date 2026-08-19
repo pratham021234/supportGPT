@@ -30,7 +30,7 @@ async def search_knowledge(
         user_id=str(member.user_id),
         query=query,
         limit=limit,
-        document_id=document_id
+        filters={"document_id": document_id} if document_id else None
     )
     return {"results": results}
 

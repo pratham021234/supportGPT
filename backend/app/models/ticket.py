@@ -12,12 +12,14 @@ class TicketPriority(str, enum.Enum):
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
     URGENT = "URGENT"
+    CRITICAL = "CRITICAL"
 
 class TicketStatus(str, enum.Enum):
     OPEN = "OPEN"
     IN_PROGRESS = "IN_PROGRESS"
     WAITING_CUSTOMER = "WAITING_CUSTOMER"
     WAITING_INTERNAL = "WAITING_INTERNAL"
+    ESCALATED = "ESCALATED"
     RESOLVED = "RESOLVED"
     CLOSED = "CLOSED"
     REOPENED = "REOPENED"
@@ -39,8 +41,10 @@ class Ticket(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     
+    ticket_number = Column(String(50), unique=True, index=True, nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    tags = Column(JSONB, default=list, nullable=True)
     
     priority = Column(Enum(TicketPriority), default=TicketPriority.MEDIUM, nullable=False)
     status = Column(Enum(TicketStatus), default=TicketStatus.OPEN, nullable=False)
@@ -65,6 +69,21 @@ class Ticket(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     comments = relationship("TicketComment", back_populates="ticket", cascade="all, delete-orphan")
     activities = relationship("TicketActivity", back_populates="ticket", cascade="all, delete-orphan")
     assignments = relationship("TicketAssignment", back_populates="ticket", cascade="all, delete-orphan")
+    attachments = relationship("TicketAttachment", back_populates="ticket", cascade="all, delete-orphan")
+
+class TicketAttachment(Base, TimestampMixin):
+    __tablename__ = "ticket_attachments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    
+    file_name = Column(String(255), nullable=False)
+    file_type = Column(String(100), nullable=True)
+    s3_url = Column(Text, nullable=False)
+    
+    ticket = relationship("Ticket", back_populates="attachments")
 
 class TicketComment(Base, TimestampMixin, AuditMixin):
     __tablename__ = "ticket_comments"

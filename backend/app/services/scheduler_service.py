@@ -1,35 +1,67 @@
 import logging
-import asyncio
-from datetime import datetime, timedelta
-from typing import Callable, List, Tuple
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.dependencies.db import async_session_maker
+from app.core.database import SessionLocal
+from app.services.analytics.analytics_service import metrics_service
+from app.services.email_service import email_service
+from app.services.notifications.template_service import template_service
+from app.repositories.workspace_repo import workspace_repo
+from app.models.user import UserRole
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class SchedulerService:
     def __init__(self):
-        self.tasks: List[Tuple[Callable, int]] = [] # list of (task_function, interval_seconds)
-        self._loop_task = None
-        
-    def add_job(self, func: Callable, interval_seconds: int):
-        self.tasks.append((func, interval_seconds))
-        
-    async def _run_loop(self):
-        while True:
-            for func, interval in self.tasks:
-                # In a real environment, we'd use celery beat or apscheduler.
-                # For this mock, we just run it and assume it handles its own logic.
-                try:
-                    async with async_session_maker() as db:
-                        await func(db)
-                except Exception as e:
-                    logger.error(f"Scheduler job failed: {e}")
-                    
-            await asyncio.sleep(60) # Wake up every minute to check schedule
+        self.scheduler = AsyncIOScheduler()
+        self.is_running = False
 
     def start(self):
-        if not self._loop_task:
-            self._loop_task = asyncio.create_task(self._run_loop())
+        if not self.is_running:
+            # Add jobs
+            self.scheduler.add_job(
+                self.send_weekly_reports,
+                CronTrigger(day_of_week='mon', hour=8, minute=0),
+                id='weekly_reports',
+                replace_existing=True
+            )
+            # Example SLA Check running every 15 minutes
+            self.scheduler.add_job(
+                self.check_sla_breaches,
+                CronTrigger(minute='*/15'),
+                id='sla_checks',
+                replace_existing=True
+            )
+            
+            self.scheduler.start()
+            self.is_running = True
+            logger.info("Scheduler started.")
 
-scheduler_service = SchedulerService()
+    def stop(self):
+        if self.is_running:
+            self.scheduler.shutdown()
+            self.is_running = False
+            logger.info("Scheduler stopped.")
+
+    async def send_weekly_reports(self):
+        logger.info("Running job: send_weekly_reports")
+        async with SessionLocal() as db:
+            workspaces = await workspace_repo.get_all(db) # Needs internal pagination in real life
+            for ws in workspaces:
+                metrics = await metrics_service.get_dashboard_metrics(db, str(ws.id), "7d")
+                html = template_service.get_weekly_report_template(metrics, f"{settings.FRONTEND_URL}/dashboard/analytics")
+                
+                # Fetch admins of the workspace to send emails to
+                # Assuming workspace has members relation, we'd iterate over them. 
+                # For MVP, we'll log it.
+                logger.info(f"Would dispatch weekly report to admins of {ws.name}")
+                await email_service.send_email("admin@mock.com", f"Weekly Report: {ws.name}", html)
+
+    async def check_sla_breaches(self):
+        logger.info("Running job: check_sla_breaches")
+        # Query open tickets older than SLA threshold, escalate them if needed
+        # and publish an event to EventBus.
+        pass
+
+scheduler = SchedulerService()

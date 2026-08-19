@@ -133,6 +133,11 @@ export const analyticsService = {
   getTicketAnalytics: async (timeRange: TimeRange) => {
     const res = await apiClient.get<any>(`/analytics/tickets?time_range=${timeRange}`);
     return res.data;
+  },
+
+  getWidgetAnalytics: async (timeRange: TimeRange) => {
+    const res = await apiClient.get<any>(`/analytics/widget?time_range=${timeRange}`);
+    return res.data;
   }
 };
 
@@ -214,5 +219,13 @@ export const useTicketAnalytics = (timeRange: TimeRange) => {
   return useQuery({
     queryKey: ['analytics-ticket-metrics', workspaceId, timeRange],
     queryFn: () => analyticsService.getTicketAnalytics(timeRange),
+  });
+};
+
+export const useWidgetAnalyticsOverview = (timeRange: TimeRange) => {
+  const { workspaceId } = useWorkspaceContext();
+  return useQuery({
+    queryKey: ['analytics-widget-metrics', workspaceId, timeRange],
+    queryFn: () => analyticsService.getWidgetAnalytics(timeRange),
   });
 };

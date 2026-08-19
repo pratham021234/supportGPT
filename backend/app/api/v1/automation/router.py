@@ -63,6 +63,26 @@ async def delete_rule(
     await automation_rule_repo.delete(db, id=id)
     return {"message": "Rule deleted"}
 
+@router.put("/rules/{id}")
+async def update_rule(
+    id: str,
+    req: RuleCreateRequest,
+    member: WorkspaceMember = Depends(require_permission("manage_automation")),
+    db: AsyncSession = Depends(get_db)
+):
+    rule = await automation_rule_repo.get(db, id=id)
+    if not rule or str(rule.workspace_id) != str(member.workspace_id):
+        raise HTTPException(status_code=404, detail="Rule not found")
+        
+    updates = {
+        "name": req.name,
+        "description": req.description,
+        "trigger_event": req.trigger_event,
+        "conditions": req.conditions,
+        "actions": req.actions
+    }
+    return await automation_rule_repo.update(db, db_obj=rule, obj_in=updates)
+
 # --- WORKFLOW EXECUTIONS ---
 
 @router.get("/executions")

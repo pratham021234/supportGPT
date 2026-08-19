@@ -8,8 +8,8 @@ const useWorkspaceContext = () => {
   };
 };
 
-export type TicketPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
-export type TicketStatus = "OPEN" | "IN_PROGRESS" | "WAITING_CUSTOMER" | "WAITING_INTERNAL" | "RESOLVED" | "CLOSED" | "REOPENED";
+export type TicketPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT" | "CRITICAL";
+export type TicketStatus = "OPEN" | "IN_PROGRESS" | "WAITING_CUSTOMER" | "WAITING_INTERNAL" | "ESCALATED" | "RESOLVED" | "CLOSED" | "REOPENED";
 export type TicketSource = "AI_ESCALATION" | "CUSTOMER" | "AGENT" | "EMAIL" | "API" | "SYSTEM";
 
 export interface Ticket {
@@ -17,8 +17,10 @@ export interface Ticket {
   workspace_id: string;
   conversation_id: string | null;
   customer_id: string | null;
+  ticket_number: string;
   title: string;
   description: string | null;
+  tags: string[];
   priority: TicketPriority;
   status: TicketStatus;
   category: string | null;
@@ -99,32 +101,10 @@ export const ticketsService = {
   },
 
   // Mock Operations Data
-  getOperationsDashboard: async () => {
-    return {
-      open_tickets: 42,
-      resolved_today: 18,
-      sla_compliance: 94.5,
-      avg_resolution_time: "4h 12m",
-      escalations: 3
-    };
-  },
-  
-  getAgentWorkload: async () => {
-    return [
-      { id: "1", name: "Alice Smith", assigned: 12, pending: 4, resolution_rate: 98, workload_score: 85 },
-      { id: "2", name: "Bob Johnson", assigned: 8, pending: 2, resolution_rate: 95, workload_score: 60 },
-      { id: "3", name: "Charlie Davis", assigned: 15, pending: 7, resolution_rate: 92, workload_score: 95 },
-    ];
-  },
-
+  // Actual operations endpoint
   getTicketAnalytics: async () => {
-    return {
-      volume_trends: [
-        { date: "Mon", count: 45 }, { date: "Tue", count: 52 }, { date: "Wed", count: 38 },
-        { date: "Thu", count: 65 }, { date: "Fri", count: 48 }, { date: "Sat", count: 20 }, { date: "Sun", count: 15 }
-      ],
-      priority_breakdown: { low: 25, medium: 45, high: 20, urgent: 10 }
-    };
+    const res = await apiClient.get<any>('/tickets/analytics');
+    return res.data;
   }
 };
 

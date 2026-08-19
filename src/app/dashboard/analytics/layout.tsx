@@ -11,6 +11,8 @@ const tabs = [
   { name: "AI Performance", path: "/dashboard/analytics/ai-performance" },
   { name: "Knowledge", path: "/dashboard/analytics/knowledge" },
   { name: "Agents", path: "/dashboard/analytics/agents" },
+  { name: "Tickets", path: "/dashboard/analytics/tickets" },
+  { name: "Widget", path: "/dashboard/analytics/widget" },
   { name: "Reports", path: "/dashboard/analytics/reports" }
 ];
 

@@ -13,8 +13,9 @@ class TextCleaner:
         # 1. Normalize unicode spaces (e.g. non-breaking spaces)
         text = text.replace('\xa0', ' ')
         
-        # 2. Remove invisible characters (zero-width spaces, etc.)
+        # 2. Remove invisible characters (zero-width spaces, etc.) and control characters
         text = re.sub(r'[\u200B-\u200D\uFEFF]', '', text)
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
         
         # 3. Strip basic HTML noise and scripts if leaked
         text = re.sub(r'<script.*?>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)

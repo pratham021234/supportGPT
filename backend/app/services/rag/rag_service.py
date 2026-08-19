@@ -19,7 +19,17 @@ logger = logging.getLogger(__name__)
 
 class RAGService:
     def __init__(self):
-        pass
+        self.injection_keywords = [
+            "ignore previous instructions", "ignore all previous instructions", 
+            "system prompt", "jailbreak", "you are now", "forget your instructions",
+            "DAN", "bypass"
+        ]
+
+    def _check_prompt_injection(self, query: str):
+        query_lower = query.lower()
+        for kw in self.injection_keywords:
+            if kw in query_lower:
+                raise ValueError(f"Security Policy Violation: Prompt injection attempt detected ({kw}).")
 
     def _get_retrieval_node(self, db: AsyncSession):
         """Creates a closure for the retrieval node that has access to the db session."""
@@ -80,6 +90,15 @@ class RAGService:
                 await citation_log_repo.create(db, obj_in=cit_in)
 
         # 5. Log Escalation
+        from app.services.analytics.analytics_service import analytics_event_service, knowledge_gap_service
+        
+        await analytics_event_service.log_event(
+            db=db,
+            workspace_id=str(state.workspace_id),
+            event_type="RAG_QUERY",
+            metadata_={"confidence_score": state.confidence_score, "latency_ms": state.latency_ms}
+        )
+        
         if state.escalate:
             esc_in = EscalationEventInternalCreate(
                 workspace_id=state.workspace_id,
@@ -88,9 +107,24 @@ class RAGService:
                 status=EscalationStatus.PENDING
             )
             await escalation_event_repo.create(db, obj_in=esc_in)
+            
+            await analytics_event_service.log_event(
+                db=db,
+                workspace_id=str(state.workspace_id),
+                event_type="AI_ESCALATION",
+                metadata_={"confidence_score": state.confidence_score}
+            )
+            
+            await knowledge_gap_service.process_failed_query(
+                db=db,
+                workspace_id=str(state.workspace_id),
+                query=state.query,
+                confidence=state.confidence_score
+            )
 
     async def execute_query(self, db: AsyncSession, workspace_id: str, user_id: Optional[str], query: str) -> Dict[str, Any]:
         """Runs the LangGraph synchronously for the query."""
+        self._check_prompt_injection(query)
         start_time = time.time()
         
         # Build graph with DB session
@@ -119,48 +153,83 @@ class RAGService:
 
     async def stream_query(self, db: AsyncSession, workspace_id: str, user_id: Optional[str], query: str) -> AsyncGenerator[str, None]:
         """Streams LangGraph execution events via Server-Sent Events (SSE)."""
+        try:
+            self._check_prompt_injection(query)
+        except ValueError as e:
+            yield f"data: {json.dumps({'event': 'ERROR', 'data': {'error': str(e)}})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+            
         start_time = time.time()
         
         retrieval_node = self._get_retrieval_node(db)
         app = build_rag_graph(retrieval_node)
         
+        import asyncio
+        queue = asyncio.Queue()
+        
+        async def streaming_callback(event: Dict[str, Any]):
+            await queue.put(event)
+            
         initial_state = RAGState(
             workspace_id=workspace_id,
             user_id=user_id,
-            query=query
+            query=query,
+            metadata={"streaming_callback": streaming_callback}
         )
         
-        final_state_dict = None
+        # Run graph in background task
+        async def run_graph():
+            try:
+                final_state = None
+                async for output in app.astream(initial_state.model_dump()):
+                    for node_name, state_update in output.items():
+                        await queue.put({
+                            "event": node_name,
+                            "data": state_update
+                        })
+                        final_state = state_update
+                # End of graph marker
+                await queue.put({"event": "DONE", "data": {}})
+            except Exception as e:
+                logger.error(f"Graph execution failed: {e}")
+                await queue.put({"event": "ERROR", "data": {"error": str(e)}})
+                await queue.put({"event": "DONE", "data": {}})
+
+        task = asyncio.create_task(run_graph())
         
-        # We use astream to yield updates at each node step
-        async for output in app.astream(initial_state.model_dump()):
-            for node_name, state_update in output.items():
-                event_data = {
-                    "event": node_name,
-                    "data": {}
-                }
+        while True:
+            item = await queue.get()
+            event_name = item.get("event")
+            
+            if event_name == "DONE":
+                break
                 
-                if node_name == "retrieval":
-                    event_data["data"]["chunks_retrieved"] = len(state_update.get("retrieved_chunks", []))
-                elif node_name == "generation":
-                    event_data["data"]["answer"] = state_update.get("answer", "")
-                    event_data["data"]["citations"] = [c.get("chunk_id") if isinstance(c, dict) else c.chunk_id for c in state_update.get("citations", [])]
-                elif node_name == "validation":
-                    event_data["data"]["confidence_score"] = state_update.get("confidence_score")
-                    event_data["data"]["escalate"] = state_update.get("escalate")
-                    
-                yield f"data: {json.dumps(event_data)}\n\n"
-                final_state_dict = state_update
-        
-        if final_state_dict:
-            # Reconstruct the full state from the updates
-            # astream yields diffs, but usually contains the full updated fields 
-            # (or we'd need a running accumulator)
-            # LangGraph astream actually yields the *full state update* for that node.
-            # To be safe, we just run an accumulator. For simplicity here, we assume 
-            # final_state_dict from the 'validation' node has what we need or we accumulated it.
-            # Actually, `astream` returns the delta returned by the node. 
-            pass # Skipping full DB logging on stream for brevity, or we'd need an accumulator.
+            if event_name == "ERROR":
+                yield f"data: {json.dumps(item)}\n\n"
+                break
+                
+            if event_name == "generation_chunk":
+                yield f"data: {json.dumps(item)}\n\n"
+                continue
+                
+            # Node level events
+            data = item.get("data", {})
+            event_data = {
+                "event": event_name,
+                "data": {}
+            }
+            
+            if event_name == "retrieval":
+                event_data["data"]["chunks_retrieved"] = len(data.get("retrieved_chunks", []))
+            elif event_name == "generation":
+                # We already streamed chunks, but we can emit final answer object if needed
+                event_data["data"]["answer_complete"] = True
+            elif event_name == "validation":
+                event_data["data"]["confidence_score"] = data.get("confidence_score")
+                event_data["data"]["escalate"] = data.get("escalate")
+                
+            yield f"data: {json.dumps(event_data)}\n\n"
             
         yield "data: [DONE]\n\n"
 

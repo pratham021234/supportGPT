@@ -12,6 +12,8 @@ from app.services.billing.billing_service import (
     stripe_service, subscription_service, plan_enforcement_service, usage_tracking_service,
     revenue_analytics_service
 )
+from app.core.config import settings
+import stripe
 
 router = APIRouter()
 
@@ -120,8 +122,25 @@ async def stripe_webhook(
     db: AsyncSession = Depends(get_db)
 ):
     """Ingest Stripe Webhooks"""
-    payload = await request.json()
-    await stripe_service.process_webhook(db, payload)
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    
+    if not sig_header:
+        raise HTTPException(status_code=400, detail="Missing stripe-signature header")
+        
+    try:
+        if hasattr(settings, 'STRIPE_WEBHOOK_SECRET') and settings.STRIPE_WEBHOOK_SECRET:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            )
+        else:
+            # If no secret configured (development/testing), just parse json
+            import json
+            event = json.loads(payload)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    await stripe_service.process_webhook(db, event)
     return {"status": "success"}
     
 @router.get("/analytics")
@@ -135,23 +154,4 @@ async def get_revenue_analytics(
         "arr": mrr * 12
     }
 
-# --- STRIPE WEBHOOKS ---
-
-@router.post("/webhooks/stripe")
-async def stripe_webhook(
-    request: Request,
-    stripe_signature: str = Header(None),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Webhook target for Stripe.
-    """
-    payload = await request.json()
-    
-    # Mock signature verification
-    if not stripe_signature:
-        pass # Normally raise HTTPException 400
-        
-    await stripe_service.process_webhook(db, payload)
-    
-    return {"status": "success"}
+# (Deprecated /webhooks/stripe route removed to prevent duplicate webhook logic)

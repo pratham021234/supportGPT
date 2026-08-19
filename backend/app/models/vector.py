@@ -39,6 +39,25 @@ class EmbeddingJob(Base):
     workspace = relationship("Workspace")
     document = relationship("Document")
 
+class EmbeddingRecord(Base):
+    __tablename__ = "embedding_records"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    chunk_id = Column(UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False, index=True, unique=True)
+    
+    provider = Column(String(50), nullable=False) # e.g. "GEMINI"
+    model = Column(String(100), nullable=False)
+    vector_dimension = Column(Integer, nullable=False)
+    chunk_hash = Column(String(64), nullable=False, index=True) # SHA-256 for caching
+    
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    workspace = relationship("Workspace")
+    document = relationship("Document")
+    chunk = relationship("DocumentChunk")
+
 class VectorCollection(Base):
     __tablename__ = "vector_collections"
 

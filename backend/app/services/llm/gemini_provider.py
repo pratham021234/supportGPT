@@ -53,4 +53,34 @@ class GeminiProvider(LLMProvider):
                 "confidence_score": 0.0
             }
 
+    async def astream_structured_answer(self, prompt: str, context: str, query: str):
+        if not self.structured_llm:
+            yield {
+                "answer": "Gemini API Key is missing. I cannot generate an answer.",
+                "citations": [],
+                "confidence_score": 0.0
+            }
+            return
+            
+        prompt_template = PromptTemplate.from_template(prompt)
+        chain = prompt_template | self.structured_llm
+        
+        try:
+            async for chunk in chain.astream({
+                "context": context,
+                "query": query
+            }):
+                # Yield partial AnswerOutput if supported, else final
+                if hasattr(chunk, "model_dump"):
+                    yield chunk.model_dump()
+                else:
+                    yield chunk
+        except Exception as e:
+            logger.error(f"Gemini streaming failed: {e}")
+            yield {
+                "answer": "An error occurred during generation.",
+                "citations": [],
+                "confidence_score": 0.0
+            }
+
 gemini_provider = GeminiProvider()

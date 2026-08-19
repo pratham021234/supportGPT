@@ -196,6 +196,10 @@ class KnowledgeService:
         if document.storage_path:
             await storage_service.delete_file(document.storage_path)
             
+        # Delete associated vectors from Qdrant
+        from app.services.vector.qdrant_service import qdrant_service
+        qdrant_service.delete_document_vectors(workspace_id, document_id)
+            
         await document_repo.remove(db, id=document_id)
         return True
 

@@ -8,9 +8,9 @@ const useWorkspaceContext = () => {
   };
 };
 
-export type ConversationStatus = "OPEN" | "ACTIVE" | "WAITING" | "ESCALATED" | "RESOLVED" | "CLOSED";
+export type ConversationStatus = "OPEN" | "ACTIVE" | "WAITING" | "ESCALATED" | "HANDOFF" | "RESOLVED" | "CLOSED";
 export type ConversationChannel = "WEB_CHAT" | "EMAIL" | "WHATSAPP" | "SLACK" | "API";
-export type SenderType = "CUSTOMER" | "AI_AGENT" | "SUPPORT_AGENT" | "SYSTEM";
+export type SenderType = "CUSTOMER" | "AI" | "AGENT" | "SYSTEM";
 export type MessageType = "TEXT" | "SYSTEM_EVENT" | "ESCALATION" | "CITATION" | "ATTACHMENT";
 
 export interface Customer {

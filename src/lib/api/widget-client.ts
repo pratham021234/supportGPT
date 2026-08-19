@@ -10,6 +10,10 @@ export interface WidgetConfig {
   welcome_message?: string;
   position?: string;
   assigned_agent_id?: string;
+  allowed_domains?: string[];
+  suggested_questions?: string[];
+  offline_message?: string;
+  support_hours?: Record<string, string>;
 }
 
 export interface WidgetAnalytics {
@@ -45,6 +49,21 @@ export const widgetClient = {
   
   startConversation: async (session_token: string): Promise<{ conversation_id: string }> => {
     const res = await apiClient.post('/widget/conversations', { session_token });
+    return res.data;
+  },
+
+  getHistory: async (session_token: string) => {
+    const res = await apiClient.get(`/widget/history/${session_token}`);
+    return res.data;
+  },
+
+  handoff: async (session_token: string) => {
+    const res = await apiClient.post('/widget/handoff', { session_token });
+    return res.data;
+  },
+
+  createTicket: async (session_token: string, reason: string) => {
+    const res = await apiClient.post('/widget/ticket', { session_token, reason });
     return res.data;
   },
 

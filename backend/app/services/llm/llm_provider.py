@@ -14,3 +14,11 @@ class LLMProvider(ABC):
         }
         """
         pass
+
+    @abstractmethod
+    async def astream_structured_answer(self, prompt: str, context: str, query: str):
+        """
+        Streams the generated answer token by token.
+        Yields partial text or JSON chunks.
+        """
+        pass

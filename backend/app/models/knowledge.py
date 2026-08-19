@@ -103,6 +103,10 @@ class DocumentChunk(Base, TimestampMixin):
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     token_count = Column(Integer, nullable=True)
+    character_count = Column(Integer, nullable=True)
+    section = Column(String(255), nullable=True)
+    page_number = Column(Integer, nullable=True)
+    parent_heading = Column(String(500), nullable=True)
     chunk_type = Column(String(50), nullable=True) # e.g. TEXT, TABLE, HEADER
     metadata_ = Column("metadata", JSONB, nullable=True)
 

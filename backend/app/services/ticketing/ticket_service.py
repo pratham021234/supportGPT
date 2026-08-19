@@ -8,6 +8,7 @@ from app.repositories.ticket_repo import (
     TicketInternalCreate, TicketCommentInternalCreate, TicketActivityInternalCreate, SLAConfigurationInternalCreate
 )
 from app.models.ticket import Ticket, TicketComment, TicketPriority, TicketStatus, TicketSource
+from app.services.analytics.analytics_service import analytics_event_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,14 @@ class TicketService:
             action="TICKET_CREATED"
         )
         await ticket_activity_repo.create(db, obj_in=activity_in)
+        
+        await analytics_event_service.log_event(
+            db=db,
+            workspace_id=workspace_id,
+            event_type="TICKET_CREATED",
+            entity_type="TICKET",
+            entity_id=str(ticket.id)
+        )
         
         return ticket
         
@@ -58,6 +67,16 @@ class TicketService:
             action=f"STATUS_CHANGED_TO_{status.value}"
         )
         await ticket_activity_repo.create(db, obj_in=activity_in)
+        
+        if status == TicketStatus.RESOLVED:
+            await analytics_event_service.log_event(
+                db=db,
+                workspace_id=str(ticket.workspace_id),
+                event_type="TICKET_RESOLVED",
+                entity_type="TICKET",
+                entity_id=ticket_id,
+                metadata_={"resolved_by": actor_id}
+            )
         
         return updated_ticket
 
@@ -100,6 +119,15 @@ class TicketService:
             metadata_={"assigned_user_id": assigned_user_id}
         )
         await ticket_activity_repo.create(db, obj_in=activity_in)
+        
+        await analytics_event_service.log_event(
+            db=db,
+            workspace_id=str(ticket.workspace_id),
+            event_type="TICKET_ASSIGNED",
+            entity_type="TICKET",
+            entity_id=ticket_id,
+            metadata_={"assigned_user_id": assigned_user_id, "actor_id": actor_id}
+        )
         
         return updated_ticket
 

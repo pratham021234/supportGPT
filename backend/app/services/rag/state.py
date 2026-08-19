@@ -41,3 +41,6 @@ class RAGState(BaseModel):
     
     # Logging
     latency_ms: int = 0
+    
+    # Extra data
+    metadata: Dict[str, Any] = Field(default_factory=dict)

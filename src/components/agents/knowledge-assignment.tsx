@@ -31,10 +31,11 @@ export function KnowledgeAssignment({ agentId }: { agentId: string }) {
   };
 
   const handleSave = () => {
-    // In a real implementation, you would pass the full list or diffs.
-    // Assuming backend takes document_ids array
-    assignKnowledge({
-      document_ids: Array.from(selectedDocs)
+    // Current backend accepts single document_id per request.
+    // For simplicity, we can fire a mutation for each or just assign the first for demo.
+    // Assuming backend router accepts array if we modify it, but let's just loop for now:
+    selectedDocs.forEach(docId => {
+      assignKnowledge({ document_id: docId });
     });
   };
 

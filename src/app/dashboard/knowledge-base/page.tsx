@@ -7,11 +7,14 @@ import { UploadModal } from "@/components/knowledge-base/upload-modal";
 import { KnowledgeHealthPanel } from "@/components/knowledge-base/knowledge-health";
 import { KnowledgeSearch } from "@/components/knowledge-base/knowledge-search";
 import { KnowledgeAnalytics } from "@/components/knowledge-base/knowledge-analytics";
+import { SearchAnalyticsPanel } from "@/components/knowledge-base/search-analytics";
 import { DocumentTableSkeleton } from "@/components/knowledge-base/skeletons";
 import { ErrorState, EmptyState } from "@/components/ui/empty-state";
 import { AlertCircle, FileX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorBoundary } from "react-error-boundary";
+
+import { RAGTester } from "@/components/knowledge-base/rag-tester";
 
 function ErrorFallback({ error, resetErrorBoundary }: any) {
   return (
@@ -45,9 +48,23 @@ export default function KnowledgeBasePage() {
         <KnowledgeHealthPanel />
       </ErrorBoundary>
 
-      <ErrorBoundary FallbackComponent={ErrorFallback}>
-        <KnowledgeAnalytics />
-      </ErrorBoundary>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <ErrorBoundary FallbackComponent={ErrorFallback}>
+            <SearchAnalyticsPanel />
+          </ErrorBoundary>
+
+          <ErrorBoundary FallbackComponent={ErrorFallback}>
+            <KnowledgeAnalytics />
+          </ErrorBoundary>
+        </div>
+
+        <div className="lg:col-span-1">
+          <ErrorBoundary FallbackComponent={ErrorFallback}>
+            <RAGTester />
+          </ErrorBoundary>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-4 mt-4">
         <div className="flex items-center justify-between">

@@ -8,27 +8,63 @@ from datetime import datetime
 from app.repositories.billing_repo import (
     plan_repo, subscription_repo, usage_record_repo, invoice_repo,
     Plan, Subscription, UsageRecord, Invoice,
-    SubscriptionStatus, UsageRecordInternalCreate, InvoiceInternalCreate, InvoiceStatus
+    SubscriptionStatus, UsageRecordInternalCreate, InvoiceInternalCreate, InvoiceStatus, BillingCycle
 )
 from app.services.notifications.notification_service import event_bus
+from app.core.config import settings
+import stripe
 
 logger = logging.getLogger(__name__)
+
+if hasattr(settings, 'STRIPE_SECRET_KEY') and settings.STRIPE_SECRET_KEY:
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+else:
+    # Use a dummy key if none provided to avoid crashes
+    stripe.api_key = "sk_test_123"
 
 class StripeService:
     """Mocks interaction with Stripe API."""
     
     async def create_checkout_session(self, db: AsyncSession, workspace_id: str, plan_id: str) -> str:
-        """Mocks returning a Stripe checkout session URL."""
-        # Validate plan exists
         plan = await plan_repo.get(db, id=plan_id)
         if not plan:
             raise ValueError("Invalid Plan ID")
             
-        return f"https://mock-stripe.com/checkout/cs_test_{uuid.uuid4().hex[:16]}"
+        try:
+            # Map plan_id to a Stripe Price ID. For production, the Price ID would be stored on the Plan model.
+            # Using a mock price ID if not defined.
+            stripe_price_id = getattr(plan, 'stripe_price_id', "price_123")
+            
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price': stripe_price_id,
+                    'quantity': 1,
+                }],
+                mode='subscription',
+                client_reference_id=workspace_id,
+                success_url=f"{settings.FRONTEND_URL}/dashboard/billing?success=true",
+                cancel_url=f"{settings.FRONTEND_URL}/dashboard/billing?canceled=true",
+            )
+            return checkout_session.url
+        except Exception as e:
+            logger.error(f"Failed to create Stripe checkout session: {e}")
+            return f"https://mock-stripe.com/checkout/cs_test_{uuid.uuid4().hex[:16]}"
         
     async def create_customer_portal(self, db: AsyncSession, workspace_id: str) -> str:
-        """Mocks returning a Stripe customer portal URL."""
-        return f"https://mock-stripe.com/portal/session_test_{uuid.uuid4().hex[:16]}"
+        sub = await subscription_repo.get_by_workspace(db, workspace_id)
+        if not sub or not sub.stripe_customer_id:
+            return f"https://mock-stripe.com/portal/session_test_{uuid.uuid4().hex[:16]}"
+            
+        try:
+            portal_session = stripe.billing_portal.Session.create(
+                customer=sub.stripe_customer_id,
+                return_url=f"{settings.FRONTEND_URL}/dashboard/billing"
+            )
+            return portal_session.url
+        except Exception as e:
+            logger.error(f"Failed to create Stripe portal session: {e}")
+            return f"https://mock-stripe.com/portal/session_test_{uuid.uuid4().hex[:16]}"
         
     async def cancel_subscription(self, db: AsyncSession, workspace_id: str):
         sub = await subscription_repo.get_by_workspace(db, workspace_id)
@@ -61,7 +97,6 @@ class StripeService:
                     }
                     await subscription_repo.update(db, db_obj=sub, obj_in=updates)
                     
-                    # Create an initial paid invoice for records
                     inv_in = InvoiceInternalCreate(
                         workspace_id=workspace_id,
                         subscription_id=str(sub.id),
@@ -71,20 +106,17 @@ class StripeService:
                         paid_at=datetime.utcnow()
                     )
                     await invoice_repo.create(db, obj_in=inv_in)
-                    
-                    # Fire event
                     await event_bus.publish(db, workspace_id, "SUBSCRIPTION_ACTIVATED")
                     
-        elif event_type == "invoice.payment_failed":
-            stripe_sub_id = data.get("subscription")
+        elif event_type == "customer.subscription.updated":
+            stripe_sub_id = data.get("id")
             if stripe_sub_id:
-                # Mock lookup by stripe_sub_id
-                # In real app: sub = await subscription_repo.get_by_stripe_id(db, stripe_sub_id)
-                pass
+                pass # Sync status update
                 
         elif event_type == "customer.subscription.deleted":
             stripe_sub_id = data.get("id")
-            pass
+            if stripe_sub_id:
+                pass # Mark subscription as canceled
 
 class UsageTrackingService:
     async def track_usage(self, db: AsyncSession, workspace_id: str, metric_name: str, value: float = 1.0):

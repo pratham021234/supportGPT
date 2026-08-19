@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Menu, Search, Sun, Moon } from "lucide-react";
+import { Bell, Menu, Search, Sun, Moon, CheckCheck } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,9 +17,11 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { useWebSocket } from "@/lib/websocket/use-websocket";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+
+type PresenceStatus = "ONLINE" | "BUSY" | "AWAY" | "OFFLINE";
 
 export function TopNav() {
   const { setTheme } = useTheme();
@@ -28,16 +30,64 @@ export function TopNav() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { isConnected, messages } = useWebSocket('/notifications');
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [presence, setPresence] = useState<PresenceStatus>("ONLINE");
+
+  const updatePresenceMutation = useMutation({
+    mutationFn: async (status: PresenceStatus) => {
+      const res = await fetch("/api/v1/handoff/agents/status", {
+        method: "POST",
+        headers: { 
+          "Authorization": `Bearer ${user?.token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ status })
+      });
+      if (!res.ok) throw new Error("Failed to update status");
+      return status;
+    },
+    onSuccess: (status) => {
+      setPresence(status);
+    }
+  });
+
+  // Fetch unread notifications
+  const { data: unreadData } = useQuery({
+    queryKey: ["notifications", "unread"],
+    queryFn: async () => {
+      if (!user) return [];
+      const res = await fetch("/api/v1/notifications/unread", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!user,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await fetch(`/api/v1/notifications/${id}/read`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] }),
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      await fetch(`/api/v1/notifications/read-all`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] }),
+  });
 
   useEffect(() => {
     if (messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
-      if (lastMsg.type === 'NEW_TICKET' || lastMsg.type === 'NEW_CONVERSATION') {
-        setUnreadCount(prev => prev + 1);
-        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
-        queryClient.invalidateQueries({ queryKey: ["recent-conversations"] });
-      }
+      // Invalidate on new websocket event to fetch real notification from DB
+      queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     }
   }, [messages, queryClient]);
 
@@ -46,10 +96,13 @@ export function TopNav() {
     router.push("/login");
   };
 
+  const notifications = Array.isArray(unreadData) ? unreadData : [];
+  const unreadCount = notifications.length;
+
   return (
     <header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
       <Sheet>
-        <SheetTrigger>
+        <SheetTrigger asChild>
           <Button variant="outline" size="icon" className="shrink-0 md:hidden">
             <Menu className="h-5 w-5" />
             <span className="sr-only">Toggle navigation menu</span>
@@ -60,7 +113,6 @@ export function TopNav() {
             <div className="flex items-center gap-2 text-lg font-semibold mb-4">
               <span>SupportGPT</span>
             </div>
-            {/* Mobile Nav Links could go here */}
           </nav>
         </SheetContent>
       </Sheet>
@@ -77,7 +129,7 @@ export function TopNav() {
         </form>
       </div>
       <DropdownMenu>
-        <DropdownMenuTrigger>
+        <DropdownMenuTrigger asChild>
           <Button variant="outline" size="icon" className="rounded-full">
             <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
@@ -96,8 +148,9 @@ export function TopNav() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      
       <DropdownMenu>
-        <DropdownMenuTrigger>
+        <DropdownMenuTrigger asChild>
           <Button variant="outline" size="icon" className="rounded-full relative">
             <Bell className="h-5 w-5" />
             {unreadCount > 0 && (
@@ -108,25 +161,40 @@ export function TopNav() {
             <span className="sr-only">Toggle notifications</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64">
-          <DropdownMenuLabel>Notifications {isConnected ? '(Live)' : '(Offline)'}</DropdownMenuLabel>
+        <DropdownMenuContent align="end" className="w-80">
+          <div className="flex items-center justify-between p-2">
+            <DropdownMenuLabel className="p-0">Notifications {isConnected ? <span className="text-emerald-500 text-xs ml-1 font-normal">(Live)</span> : <span className="text-rose-500 text-xs ml-1 font-normal">(Offline)</span>}</DropdownMenuLabel>
+            {unreadCount > 0 && (
+                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => markAllReadMutation.mutate()}>
+                    <CheckCheck className="w-3 h-3 mr-1"/> Mark all
+                </Button>
+            )}
+          </div>
           <DropdownMenuSeparator />
           {unreadCount === 0 ? (
-            <div className="p-4 text-center text-sm text-muted-foreground">No new notifications</div>
+            <div className="p-6 text-center text-sm text-muted-foreground">You're all caught up!</div>
           ) : (
-            <div className="max-h-64 overflow-y-auto">
-              {messages.map((m, i) => (
-                <DropdownMenuItem key={i} className="flex flex-col items-start gap-1 p-3">
-                  <span className="font-semibold text-xs">{m.type}</span>
-                  <span className="text-xs text-muted-foreground">{JSON.stringify(m.payload)}</span>
-                </DropdownMenuItem>
+            <div className="max-h-[300px] overflow-y-auto flex flex-col">
+              {notifications.map((n: any) => (
+                <div key={n.id} className="flex flex-col items-start gap-1 p-3 border-b hover:bg-muted/50 cursor-pointer" onClick={() => markReadMutation.mutate(n.id)}>
+                  <div className="flex justify-between w-full items-center">
+                      <span className={`font-semibold text-xs ${n.priority === 'CRITICAL' || n.priority === 'HIGH' ? 'text-rose-600' : ''}`}>{n.title}</span>
+                      <span className="text-[10px] text-muted-foreground">{new Date(n.created_at).toLocaleTimeString()}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground line-clamp-2">{n.message}</span>
+                </div>
               ))}
             </div>
           )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="justify-center text-xs" onClick={() => router.push("/dashboard/settings/notifications")}>
+              View Preferences
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
       <DropdownMenu>
-        <DropdownMenuTrigger>
+        <DropdownMenuTrigger asChild>
           <Button variant="secondary" size="icon" className="rounded-full">
             <Avatar className="h-9 w-9">
               <AvatarImage src="/avatars/01.png" alt="@avatar" />
@@ -137,8 +205,21 @@ export function TopNav() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <div className="px-2 py-1.5 flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Status:</span>
+            <select 
+              className="text-xs border rounded p-1"
+              value={presence}
+              onChange={(e) => updatePresenceMutation.mutate(e.target.value as PresenceStatus)}
+            >
+              <option value="ONLINE">🟢 Online</option>
+              <option value="BUSY">🔴 Busy</option>
+              <option value="AWAY">🟡 Away</option>
+              <option value="OFFLINE">⚫ Offline</option>
+            </select>
+          </div>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Settings</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>Settings</DropdownMenuItem>
           <DropdownMenuItem>Support</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout}>Logout</DropdownMenuItem>

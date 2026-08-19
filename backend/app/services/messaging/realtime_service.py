@@ -84,7 +84,7 @@ class RealtimeMessagingService:
                 await message_service.store_message(
                     db=db,
                     conversation_id=conversation_id,
-                    sender_type=SenderType.AI_AGENT,
+                    sender_type=SenderType.AI,
                     content=ai_text,
                     sender_id=str(conv.agent_id),
                     confidence=confidence,
@@ -101,7 +101,9 @@ class RealtimeMessagingService:
                     
                 await websocket_manager.broadcast_to_channel("chat", conversation_id, {
                     "type": "message_complete",
-                    "sender": "AI_AGENT"
+                    "sender": "AI",
+                    "confidence": confidence,
+                    "sources": sources
                 })
                 
                 if escalated:
@@ -133,14 +135,14 @@ class RealtimeMessagingService:
         await message_service.store_message(
             db=db,
             conversation_id=conversation_id,
-            sender_type=SenderType.SUPPORT_AGENT,
+            sender_type=SenderType.AGENT,
             content=text,
             sender_id=user_id
         )
         
         await websocket_manager.broadcast_to_channel("chat", conversation_id, {
             "type": "message",
-            "sender": "SUPPORT_AGENT",
+            "sender": "AGENT",
             "content": text
         })
 

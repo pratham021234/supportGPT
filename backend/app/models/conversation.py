@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Enum, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Enum, Boolean, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -12,6 +12,7 @@ class ConversationStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     WAITING = "WAITING"
     ESCALATED = "ESCALATED"
+    HANDOFF = "HANDOFF"
     RESOLVED = "RESOLVED"
     CLOSED = "CLOSED"
 
@@ -24,8 +25,8 @@ class ConversationChannel(str, enum.Enum):
 
 class SenderType(str, enum.Enum):
     CUSTOMER = "CUSTOMER"
-    AI_AGENT = "AI_AGENT"
-    SUPPORT_AGENT = "SUPPORT_AGENT"
+    AI = "AI"
+    AGENT = "AGENT"
     SYSTEM = "SYSTEM"
 
 class MessageType(str, enum.Enum):
@@ -44,6 +45,8 @@ class Customer(Base, TimestampMixin, SoftDeleteMixin):
     name = Column(String(255), nullable=True)
     email = Column(String(255), nullable=True, index=True)
     phone = Column(String(50), nullable=True)
+    company = Column(String(255), nullable=True)
+    location = Column(String(255), nullable=True)
     external_id = Column(String(255), nullable=True, index=True)
     
     metadata_ = Column("metadata", JSONB, nullable=True)
@@ -71,6 +74,8 @@ class Conversation(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     started_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     last_message_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    confidence_score = Column(Float, nullable=True)
 
     workspace = relationship("Workspace")
     customer = relationship("Customer", back_populates="conversations")
@@ -93,6 +98,11 @@ class Message(Base, TimestampMixin):
     
     content = Column(Text, nullable=False)
     message_type = Column(Enum(MessageType), default=MessageType.TEXT, nullable=False)
+    is_internal = Column(Boolean, default=False)
+    
+    citations = Column(JSONB, nullable=True)
+    confidence = Column(Float, nullable=True)
+    tokens = Column(Integer, nullable=True)
     
     metadata_ = Column("metadata", JSONB, nullable=True)
     

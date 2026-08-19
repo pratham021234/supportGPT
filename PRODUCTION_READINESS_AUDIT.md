@@ -1,43 +1,41 @@
-# Production Readiness Audit
+# SupportGPT Production Readiness Audit
 
-## 1. Architecture Overview
-SupportGPT is a complex AI SaaS platform utilizing a React/Next.js frontend, a FastAPI backend, PostgreSQL for relational state, Redis for caching and pub/sub, Qdrant for vector embeddings, and LangGraph/Celery for asynchronous AI and workflow execution.
-
-While the local docker-compose configuration successfully orchestrates these services, the architecture lacks key components required for a commercial SaaS deployment.
-
-## 2. Infrastructure Gaps
-
-### Observability & Monitoring
-- **Metrics**: Missing Prometheus exporters for FastAPI, PostgreSQL, and Redis.
-- **Tracing**: Missing OpenTelemetry instrumentation for distributed tracing across Next.js, FastAPI, and asynchronous Celery workers.
-- **Logging**: Logs are scattered across stdout of multiple containers without centralized aggregation (e.g. ELK, Loki) or structured JSON formatting.
-- **Error Tracking**: Missing Sentry integration to catch unhandled exceptions, frontend React crashes, and background worker failures.
-
-### Deployment Readiness
-- **Production Compose**: Missing `docker-compose.prod.yml` optimized for cloud deployment.
-- **Reverse Proxy**: Missing Nginx configuration for SSL termination, rate limiting, and static asset caching.
-- **CI/CD Pipelines**: No GitHub Actions workflows exist for linting, testing, security scanning, and automated deployment.
-- **Kubernetes (K8s)**: No manifests (`Deployments`, `Services`, `Ingress`, `ConfigMaps`, `Secrets`) exist for migrating off a single-node deployment to a managed cluster (EKS/GKE).
-
-## 3. Reliability & Security Risks
-
-### Health & Orchestration
-- **Liveness/Readiness Probes**: FastAPI backend lacks standardized `/health/live` and `/health/ready` endpoints, critical for Kubernetes pod orchestration and zero-downtime deployments.
-
-### Backup Strategy
-- **Missing**: No documented or automated procedures to backup PostgreSQL dumps, Qdrant snapshots, or Redis RDB files. No Disaster Recovery Plan.
-
-### Security Hardening
-- **Secrets Management**: Configuration relies on `.env` files. While acceptable for a single node, production requires robust secret injection (e.g. AWS Secrets Manager, K8s Secrets).
-- **Network Isolation**: Backend and databases are exposed on host ports in `docker-compose.yml`. Production requires exposing only Nginx/Ingress and keeping all databases private.
+## 1. Executive Summary
+This document outlines the current state of SupportGPT in relation to production deployment standards. The core feature suite is structurally complete, but critical infrastructure layers (Containerization, Observability, Load Balancing, and Hardening) must be finalized before onboarding paying enterprise customers.
 
 ---
 
-## 4. Required Action Plan
+## 2. Infrastructure & Deployment (Missing)
+- **Containerization**: `Dockerfile.backend`, `Dockerfile.frontend`, and `docker-compose.yml` do not exist. (The existing `.github/workflows/main.yml` attempts to build images that are missing).
+- **Environment Management**: A standardized `.env.example` mapping all integration keys (Stripe, Resend, Gemini, OpenAI, Postgres, Redis, Qdrant) is missing.
+- **CI/CD Pipeline**: The GitHub Action exists but the deployment triggers are stubbed.
 
-1. **Dockerization**: Create `docker-compose.prod.yml` and `nginx.conf` for reverse proxying and SSL.
-2. **Environment Management**: Restructure `.env.example`, `.env.development`, and `.env.production`.
-3. **CI/CD**: Generate `.github/workflows/main.yml`.
-4. **Observability Code**: Inject OpenTelemetry, Sentry, and Health Check routers into `backend/app/main.py`.
-5. **K8s Readiness**: Stub out a basic `k8s/` directory.
-6. **Documentation**: Generate `PERFORMANCE_REPORT.md`, `BACKUP_STRATEGY.md`, `DISASTER_RECOVERY_PLAN.md`, `SECURITY_HARDENING_REPORT.md`, and `LAUNCH_READINESS_CHECKLIST.md`.
+## 3. Billing & Integrations (Partially Complete)
+- **Billing API**: `/api/v1/billing/router.py` exists with checkout, portal, and webhook ingestion logic.
+- **Billing UI**: React components in `/dashboard/billing` exist.
+- **Integrations**: Framework for OAuth connectors exists, and a marketplace is stubbed in the UI. Generic webhooks are supported but the customer-facing Webhook registration UI (`/dashboard/settings/webhooks`) and API Key UI (`/dashboard/settings/api-keys`) may need wiring.
+
+## 4. Monitoring & Observability (Missing)
+- **Sentry Integration**: FastAPI backend and Next.js frontend lack Sentry bindings for exception tracking.
+- **Performance Profiling**: No APM (Application Performance Monitoring) to track RAG/Embedding latency.
+- **Structured Logging**: Missing JSON structured logging required for ELK/Datadog ingestion.
+
+## 5. Security & Hardening (Needs Enforcement)
+- **Rate Limiting**: Public endpoints (Auth, Widget API, Webhooks) have no active rate limiters preventing DDoS or brute-force token exhaustion.
+- **Secrets**: Some mock secrets/passwords may still linger in source files rather than relying strictly on `os.getenv`.
+- **File Security**: Knowledge base uploads need explicit MIME-type and size validation to prevent malicious PDF/Docx payloads.
+
+## 6. Documentation (Missing)
+The following mandatory operational artifacts do not exist:
+- `README.md`
+- `API_DOCUMENTATION.md`
+- `DEPLOYMENT_GUIDE.md`
+- `ARCHITECTURE.md`
+- `CONTRIBUTING.md`
+- `DISASTER_RECOVERY.md`
+
+---
+**Priority Order for Final Phase**:
+1. **Dockerization & Env Configs** (Unblocks deployment)
+2. **Monitoring, Logging, & Rate Limiting** (Protects the system)
+3. **Documentation & Runbooks** (Empowers operators)

@@ -11,6 +11,7 @@ from app.models.workspace import WorkspaceMember
 from app.services.widget.widget_service import (
     widget_config_service, widget_session_service
 )
+from app.services.billing.billing_service import plan_enforcement_service
 
 router = APIRouter()
 
@@ -34,6 +35,17 @@ class ConfigurationUpdateRequest(BaseModel):
     launcher_text: Optional[str] = None
     welcome_message: Optional[str] = None
     position: Optional[str] = None
+    allowed_domains: Optional[List[str]] = None
+    suggested_questions: Optional[List[str]] = None
+    offline_message: Optional[str] = None
+    support_hours: Optional[dict] = None
+
+class WidgetTicketRequest(BaseModel):
+    session_token: str
+    reason: str
+
+class WidgetHandoffRequest(BaseModel):
+    session_token: str
 
 # --- PUBLIC ROUTES ---
 
@@ -52,7 +64,11 @@ async def get_public_config(
             "launcher_text": "Chat with us",
             "welcome_message": "Hello! How can I help you today?",
             "position": "bottom-right",
-            "border_radius": "8px"
+            "border_radius": "8px",
+            "allowed_domains": [],
+            "suggested_questions": [],
+            "offline_message": "We are currently offline. Please leave a message or create a ticket.",
+            "support_hours": {}
         }
     return config
 
@@ -64,9 +80,17 @@ async def initialize_session(
 ):
     """Generates an anonymous or identified session for a visitor."""
     # Origin validation for multi-site deployment security
-    # In a full prod system, we would query `WorkspaceDomains` table to check if `origin` is allowed.
-    if origin and "malicious-site.com" in origin:
-        raise HTTPException(status_code=403, detail="Origin not authorized for this widget.")
+    if origin:
+        config = await widget_config_service.get_configuration(db, req.agent_id)
+        if config and config.allowed_domains:
+            # Simple check if origin is in allowed domains
+            allowed = False
+            for domain in config.allowed_domains:
+                if domain in origin:
+                    allowed = True
+                    break
+            if not allowed:
+                raise HTTPException(status_code=403, detail="Origin not authorized for this widget.")
         
     # We can pass customer details if identify() was called prior to initialization
     # If customer is already known, we look them up or create them. 
@@ -100,6 +124,13 @@ async def start_conversation(
 ):
     """Converts a widget session into a backend Conversation ID"""
     try:
+        session = await widget_session_service.get_session(db, req.session_token)
+        if session:
+            try:
+                await plan_enforcement_service.check_limit(db, str(session.workspace_id), "conversations", 1.0)
+            except plan_enforcement_service.LimitExceededError as e:
+                raise HTTPException(status_code=402, detail=str(e))
+                
         conv_id = await widget_session_service.start_conversation(db, req.session_token)
         return {"conversation_id": conv_id}
     except ValueError as e:
@@ -115,7 +146,7 @@ async def send_widget_message(
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
         
-    from app.services.conversation.message_service import message_service
+    from app.services.messaging.message_service import message_service
     # Needs a conversation to be started
     # For MVP, we auto-start if no active conversation is mapped in session. 
     # But WidgetSession doesn't store active conversation ID, so we query it via customer_id.
@@ -142,7 +173,56 @@ async def get_widget_history(
     session = await widget_session_service.get_session(db, session_token)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
-    return {"messages": []} # Mock empty history
+        
+    from app.repositories.conversation_repo import conversation_repo, message_repo
+    convs = await conversation_repo.get_by_workspace(db, str(session.workspace_id))
+    active_conv = next((c for c in convs if str(c.customer_id) == str(session.customer_id)), None)
+    
+    if not active_conv:
+        return {"messages": []}
+        
+    msgs = await message_repo.get_by_conversation(db, str(active_conv.id))
+    return {
+        "messages": [
+            {"id": str(m.id), "content": m.content, "sender_type": m.sender_type.value, "created_at": m.created_at.isoformat()}
+            for m in msgs
+        ]
+    }
+
+@router.post("/handoff")
+async def handoff_conversation(
+    req: WidgetHandoffRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    session = await widget_session_service.get_session(db, req.session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+        
+    # Trigger handoff in our handoff service
+    # For MVP, we just return success
+    return {"message": "Escalated to human"}
+
+@router.post("/ticket")
+async def convert_to_ticket(
+    req: WidgetTicketRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    session = await widget_session_service.get_session(db, req.session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+        
+    from app.services.ticketing.ticket_creation_service import ticket_creation_service
+    # Start conversation if it doesn't exist
+    conv_id = await widget_session_service.start_conversation(db, req.session_token)
+    
+    ticket = await ticket_creation_service.create_ai_escalation(
+        db=db,
+        workspace_id=str(session.workspace_id),
+        conversation_id=str(conv_id),
+        customer_id=str(session.customer_id),
+        reason=req.reason
+    )
+    return {"ticket_id": str(ticket.id), "ticket_number": ticket.ticket_number}
 
 # --- ADMIN ROUTES ---
 

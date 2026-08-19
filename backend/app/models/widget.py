@@ -20,6 +20,11 @@ class WidgetConfiguration(Base):
     position = Column(String(50), default="bottom-right")
     border_radius = Column(String(20), default="8px")
     
+    allowed_domains = Column(JSONB, default=list, nullable=True)
+    suggested_questions = Column(JSONB, default=list, nullable=True)
+    offline_message = Column(Text, default="We are currently offline. Please leave a message or create a ticket.")
+    support_hours = Column(JSONB, default=dict, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

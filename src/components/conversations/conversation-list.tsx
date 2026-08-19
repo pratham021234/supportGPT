@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useConversations, Conversation, ConversationStatus } from "@/lib/api/conversations";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,6 +17,7 @@ interface ConversationListProps {
 }
 
 export function ConversationList({ activeId, onSelect, statusFilter, onStatusChange }: ConversationListProps) {
+  const [searchQuery, setSearchQuery] = useState("");
   // If "ALL" is selected, we fetch all by omitting the status arg
   const queryStatus = statusFilter === "ALL" ? undefined : statusFilter;
   const { data: conversations, isLoading } = useConversations(queryStatus);
@@ -24,13 +26,25 @@ export function ConversationList({ activeId, onSelect, statusFilter, onStatusCha
     return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const filteredConversations = conversations?.filter(conv => {
+    if (!searchQuery) return true;
+    const nameMatch = conv.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+    const emailMatch = conv.customer?.email?.toLowerCase().includes(searchQuery.toLowerCase());
+    return nameMatch || emailMatch;
+  });
+
   return (
     <div className="w-full md:w-1/3 lg:w-[350px] border-r flex flex-col bg-muted/20 h-full overflow-hidden">
       <div className="p-4 border-b space-y-4 shrink-0 bg-background">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search messages..." className="pl-8 bg-background" />
+            <Input 
+              placeholder="Search conversations..." 
+              className="pl-8 bg-background" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <Button variant="outline" size="icon">
             <Filter className="h-4 w-4" />
@@ -76,12 +90,12 @@ export function ConversationList({ activeId, onSelect, statusFilter, onStatusCha
                 <Skeleton className="h-5 w-16 rounded" />
               </div>
             ))
-          ) : !conversations || conversations.length === 0 ? (
+          ) : !filteredConversations || filteredConversations.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               No {statusFilter !== "ALL" ? statusFilter.toLowerCase() : ""} conversations found.
             </div>
           ) : (
-            conversations.map((conv) => (
+            filteredConversations.map((conv) => (
               <div 
                 key={conv.id} 
                 onClick={() => onSelect(conv.id)}

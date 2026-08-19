@@ -8,6 +8,8 @@ from app.repositories.conversation_repo import (
     CustomerFeedbackInternalCreate
 )
 from app.models.conversation import Customer, Conversation, Message, ConversationStatus, SenderType, MessageType, CustomerFeedback
+from app.services.notifications.notification_service import event_bus
+from app.services.analytics.analytics_service import analytics_event_service
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,23 @@ class ConversationService:
             event_type="CREATED"
         )
         await conversation_event_repo.create(db, obj_in=event_in)
+        
+        await event_bus.publish(
+            db=db,
+            workspace_id=str(conv.workspace_id),
+            event_type="CONVERSATION_CREATED",
+            entity_type="CONVERSATION",
+            entity_id=str(conv.id),
+            payload={"conversation_id": str(conv.id)}
+        )
+        
+        await analytics_event_service.log_event(
+            db=db,
+            workspace_id=str(conv.workspace_id),
+            event_type="CONVERSATION_STARTED",
+            entity_type="CONVERSATION",
+            entity_id=str(conv.id)
+        )
         
         return conv
 
@@ -70,6 +89,15 @@ class ConversationService:
         )
         await conversation_event_repo.create(db, obj_in=event_in)
         
+        if status == ConversationStatus.RESOLVED:
+            await analytics_event_service.log_event(
+                db=db,
+                workspace_id=str(conv.workspace_id),
+                event_type="CONVERSATION_RESOLVED",
+                entity_type="CONVERSATION",
+                entity_id=str(conv.id)
+            )
+        
         return updated_conv
 
     async def add_message(self, db: AsyncSession, conversation_id: str, sender_type: SenderType, content: str, sender_id: Optional[str] = None, message_type: MessageType = MessageType.TEXT, metadata_: Optional[Dict[str, Any]] = None) -> Message:
@@ -84,6 +112,19 @@ class ConversationService:
         msg = await message_repo.create(db, obj_in=msg_in)
         
         await conversation_repo.update_last_message(db, conversation_id)
+        
+        # We need workspace_id to log event. Let's fetch it from conv
+        conv = await conversation_repo.get(db, id=conversation_id)
+        if conv:
+            await analytics_event_service.log_event(
+                db=db,
+                workspace_id=str(conv.workspace_id),
+                event_type="MESSAGE_SENT",
+                entity_type="MESSAGE",
+                entity_id=str(msg.id),
+                metadata_={"sender_type": sender_type.value}
+            )
+            
         return msg
 
     async def get_messages(self, db: AsyncSession, conversation_id: str):
@@ -102,6 +143,16 @@ class ConversationService:
             metadata_={"assigned_user_id": assigned_user_id}
         )
         await conversation_event_repo.create(db, obj_in=event_in)
+        
+        await event_bus.publish(
+            db=db,
+            workspace_id=str(conv.workspace_id),
+            event_type="CONVERSATION_ASSIGNED",
+            entity_type="CONVERSATION",
+            entity_id=str(conv.id),
+            payload={"conversation_id": str(conv.id), "assigned_to": assigned_user_id}
+        )
+        
         return updated_conv
 
     async def add_feedback(self, db: AsyncSession, conversation_id: str, is_helpful: Optional[bool] = None, rating: Optional[int] = None, comment: Optional[str] = None) -> CustomerFeedback:
@@ -111,7 +162,20 @@ class ConversationService:
             rating=rating,
             comment=comment
         )
-        return await customer_feedback_repo.create(db, obj_in=fb_in)
+        fb = await customer_feedback_repo.create(db, obj_in=fb_in)
+        
+        conv = await conversation_repo.get(db, id=conversation_id)
+        if conv:
+            await analytics_event_service.log_event(
+                db=db,
+                workspace_id=str(conv.workspace_id),
+                event_type="FEEDBACK_SUBMITTED",
+                entity_type="CONVERSATION",
+                entity_id=conversation_id,
+                metadata_={"rating": rating, "is_helpful": is_helpful}
+            )
+            
+        return fb
 
     async def add_tag(self, db: AsyncSession, conversation_id: str, tag: str) -> Optional[Conversation]:
         conv = await conversation_repo.get(db, id=conversation_id)

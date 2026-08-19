@@ -10,10 +10,15 @@ from app.repositories.notification_repo import (
     NotificationType, NotificationStatus, NotificationPriority, DeliveryChannel, DeliveryStatus
 )
 from app.repositories.ticket_repo import ticket_repo
+from app.repositories.user_repo import user_repo
 from app.services.analytics_service import analytics_service
 from app.services.automation.automation_service import automation_engine
 from app.services.integrations.sync_engine import sync_engine
 from app.services.messaging.websocket_manager import websocket_manager
+import os
+import resend
+
+resend.api_key = os.getenv("RESEND_API_KEY", "re_dummy_key_123")
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +102,24 @@ class DeliveryTrackingService:
         })
         
     async def dispatch_email(self, db: AsyncSession, notification: Notification, user_email: str):
-        # Mocking email dispatch
-        logger.info(f"MOCK EMAIL DISPATCH to {user_email}: {notification.title}")
-        
+        try:
+            params: resend.Emails.SendParams = {
+                "from": "SupportGPT <noreply@supportgpt.com>",
+                "to": [user_email],
+                "subject": notification.title,
+                "html": f"<p>{notification.message}</p>"
+            }
+            resend.Emails.send(params)
+            logger.info(f"Email sent via Resend to {user_email}")
+            status = DeliveryStatus.DELIVERED
+        except Exception as e:
+            logger.error(f"Failed to send email to {user_email}: {e}")
+            status = DeliveryStatus.FAILED
+            
         delivery_in = NotificationDeliveryInternalCreate(
             notification_id=str(notification.id),
             channel=DeliveryChannel.EMAIL,
-            status=DeliveryStatus.DELIVERED
+            status=status
         )
         await delivery_repo.create(db, obj_in=delivery_in)
 
@@ -128,7 +144,9 @@ class NotificationService:
                 if prefs.in_app_enabled:
                     await delivery_service.dispatch_in_app(db, notif)
                 if prefs.email_enabled:
-                    await delivery_service.dispatch_email(db, notif, "mock@example.com")
+                    user = await user_repo.get(db, id=user_id)
+                    if user and user.email:
+                        await delivery_service.dispatch_email(db, notif, user.email)
                     
         elif event.event_type == "CONFIDENCE_LOW":
             if event.payload and "agent_id" in event.payload and "owner_id" in event.payload:
@@ -146,7 +164,9 @@ class NotificationService:
                 if prefs.in_app_enabled:
                     await delivery_service.dispatch_in_app(db, notif)
                 if prefs.email_enabled:
-                    await delivery_service.dispatch_email(db, notif, "mock@example.com")
+                    user = await user_repo.get(db, id=user_id)
+                    if user and user.email:
+                        await delivery_service.dispatch_email(db, notif, user.email)
                     
         elif event.event_type == "DOCUMENT_PROCESSED":
             if event.payload and "owner_id" in event.payload:
@@ -164,7 +184,9 @@ class NotificationService:
                 if prefs.in_app_enabled:
                     await delivery_service.dispatch_in_app(db, notif)
                 if prefs.email_enabled:
-                    await delivery_service.dispatch_email(db, notif, "mock@example.com")
+                    user = await user_repo.get(db, id=user_id)
+                    if user and user.email:
+                        await delivery_service.dispatch_email(db, notif, user.email)
                     
     async def get_unread(self, db: AsyncSession, user_id: str):
         return await notification_repo.get_unread_by_user(db, user_id)
@@ -179,6 +201,15 @@ class NotificationService:
         if notif:
             return await notification_repo.update(db, db_obj=notif, obj_in={"status": NotificationStatus.READ})
         return None
+        
+    async def mark_all_read(self, db: AsyncSession, user_id: str):
+        from sqlalchemy import update
+        q = update(Notification).where(
+            Notification.user_id == user_id,
+            Notification.status == NotificationStatus.UNREAD
+        ).values(status=NotificationStatus.READ)
+        await db.execute(q)
+        await db.commit()
 
     async def delete_notification(self, db: AsyncSession, notification_id: str) -> bool:
         notif = await notification_repo.get(db, id=notification_id)

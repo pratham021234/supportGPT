@@ -12,6 +12,7 @@ from app.services.notifications.notification_service import (
     event_bus, notification_service, preference_service
 )
 from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
+from app.services.messaging.websocket_manager import websocket_manager
 
 router = APIRouter()
 
@@ -69,7 +70,7 @@ async def mark_all_read(
     member: WorkspaceMember = Depends(require_permission("view_notifications")),
     db: AsyncSession = Depends(get_db)
 ):
-    # In a real app we'd have a mark_all_read in the service, mock for now
+    await notification_service.mark_all_read(db, str(member.user_id))
     return {"message": "All notifications marked as read"}
 
 @router.get("/health")
@@ -108,14 +109,17 @@ async def update_preferences(
     pref = await preference_service.update_preferences(db, str(member.user_id), updates)
     return pref
 
-# Simple websocket for notification toasts (stub)
 @router.websocket("/ws")
-async def websocket_notifications(websocket: WebSocket):
-    await websocket.accept()
+async def websocket_notifications(
+    websocket: WebSocket,
+    # member: WorkspaceMember = Depends(require_permission("view_notifications")) # Auth needs to be handled via token query param for WebSockets usually, but we'll assume user_id is passed as query param for MVP
+    user_id: str
+):
+    await websocket_manager.connect(websocket, "notifications", user_id)
     try:
         while True:
-            # wait for messages from client, or could poll the DB.
             data = await websocket.receive_text()
-            await websocket.send_text(json.dumps({"status": "connected"}))
+            # Notifications are usually one-way server-to-client, but we can acknowledge
+            await websocket.send_text(json.dumps({"status": "connected", "received": data}))
     except WebSocketDisconnect:
-        pass
+        websocket_manager.disconnect(websocket, "notifications", user_id)

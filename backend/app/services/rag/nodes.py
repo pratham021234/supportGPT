@@ -11,7 +11,7 @@ from app.services.rag.context_assembler import context_assembler
 from app.services.rag.citation_service import citation_service
 from app.services.rag.confidence_engine import confidence_engine
 from app.services.rag.escalation_service import escalation_service
-from app.services.llm.gemini_provider import gemini_provider
+from app.services.llm.orchestrator import llm_orchestrator
 from app.services.rag.prompt_builder import prompt_builder
 from app.services.rag.hallucination_guard import hallucination_guard
 from app.core.config import settings
@@ -33,15 +33,23 @@ async def query_node(state: RAGState) -> Dict[str, Any]:
 
 async def retrieval_node(state: RAGState) -> Dict[str, Any]:
     """Retrieves relevant chunks from Qdrant via Module 7 search_service"""
+    from app.services.rag.retrieval_engine import retrieval_engine
+    from app.core.database import async_session_maker
+    
     logger.info(f"Retrieval Node searching for workspace: {state.workspace_id}")
     
-    # We don't have the db session here natively in LangGraph unless passed via config.
-    # But search_service is async and requires db if it logs events.
-    # Wait, search_service in Module 7 requires `db`. We'll pass it in the config or skip event logging in the graph node.
-    # For now, we can create a temporary session if needed, or we modify the graph caller to pass db.
-    pass
-    # We will implement this inside the graph.py where we have access to the DB context.
-    return {}
+    async with async_session_maker() as db:
+        top_chunks = await retrieval_engine.retrieve(
+            db=db,
+            workspace_id=state.workspace_id,
+            user_id=state.user_id,
+            query=state.query,
+            keywords=state.keywords,
+            limit=5, # Top 5
+            agent_routing=state.agent_routing
+        )
+        
+    return {"retrieved_chunks": top_chunks}
 
 def context_builder_node(state: RAGState) -> Dict[str, Any]:
     """Formats retrieved chunks into a single context string while preserving metadata."""
@@ -55,15 +63,47 @@ async def generation_node(state: RAGState) -> Dict[str, Any]:
     logger.info("Generation Node running...")
     
     # 1. Build Prompt dynamically
-    prompt = prompt_builder.build_prompt(
+    prompt = await prompt_builder.build_prompt(
         context=state.context_str,
         query=state.query,
-        agent_type=state.agent_routing,
+        agent_routing=state.agent_routing,
         workspace_id=state.workspace_id
     )
     
+    # Check if streaming callback exists in metadata
+    streaming_callback = state.metadata.get("streaming_callback") if state.metadata else None
+    
+    if streaming_callback:
+        # Use streaming capability
+        logger.info("Generation Node using streaming...")
+        final_answer = ""
+        citations = []
+        confidence_score = 0.0
+        
+        async for chunk in llm_orchestrator.astream_structured_answer(
+            prompt=prompt,
+            context=state.context_str,
+            query=state.query
+        ):
+            if isinstance(chunk, dict):
+                # End of stream parsed result or partial dict
+                final_answer = chunk.get("answer", final_answer)
+                citations = chunk.get("citations", citations)
+                confidence_score = chunk.get("confidence_score", confidence_score)
+                # Pass partial event to callback
+                await streaming_callback({"event": "generation_chunk", "data": chunk})
+            else:
+                # Assuming chunk is text or generic stream item
+                await streaming_callback({"event": "generation_chunk", "data": {"text": str(chunk)}})
+        
+        return {
+            "answer": final_answer,
+            "citations": citations,
+            "confidence_score": confidence_score
+        }
+    
     # 2. Generate structured answer via Provider
-    result = await gemini_provider.generate_structured_answer(
+    result = await llm_orchestrator.generate_structured_answer(
         prompt=prompt,
         context=state.context_str,
         query=state.query

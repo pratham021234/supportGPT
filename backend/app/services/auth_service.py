@@ -3,9 +3,10 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.repositories import user_repo, refresh_token_repo, email_verification_repo, password_reset_repo
-from app.schemas.auth import RegisterRequest, LoginRequest
+from app.repositories import user_repo, refresh_token_repo, email_verification_repo, password_reset_repo, workspace_repo, workspace_member_repo
+from app.schemas.auth import RegisterRequest, LoginRequest, AuthResponse
 from app.schemas.user import UserCreate
+from app.schemas.workspace import WorkspaceInternalCreate, WorkspaceMemberInternalCreate
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token, decode_token
 from app.core.exceptions import BadRequestException, UnauthorizedException, NotFoundException
 from app.services.email_service import email_service
@@ -30,6 +31,21 @@ class AuthService:
         )
         
         user = await user_repo.create(db, obj_in=user_in)
+        
+        # Auto create workspace if requested
+        if data.create_workspace:
+            workspace_in = WorkspaceInternalCreate(name=f"{data.full_name}'s Workspace")
+            workspace = await workspace_repo.create(db, obj_in=workspace_in)
+            
+            # Make user owner
+            member_in = WorkspaceMemberInternalCreate(
+                workspace_id=str(workspace.id),
+                user_id=str(user.id),
+                role_id="owner"
+            )
+            await workspace_member_repo.create(db, obj_in=member_in)
+            
+            await audit_service.log_action(db, str(workspace.id), "USER_REGISTER", "USER", str(user.id), str(user.id))
         
         # Assign OWNER role for new registration (or default to SUPPORT_AGENT based on business logic)
         # We'll use OWNER for simplicity in this SaaS architecture
@@ -71,7 +87,7 @@ class AuthService:
             return True
         return False
 
-    async def login(self, db: AsyncSession, data: LoginRequest, ip_address: str = None, user_agent: str = None) -> Tuple[str, str, User]:
+    async def login(self, db: AsyncSession, data: LoginRequest, ip_address: str = None, user_agent: str = None) -> AuthResponse:
         user = await user_repo.get_by_email(db, email=data.email)
         if not user or not user.password_hash:
             raise UnauthorizedException("Incorrect email or password")
@@ -86,14 +102,15 @@ class AuthService:
         if not user.is_verified:
             raise UnauthorizedException("Email not verified")
 
-        roles = [r.role.name for r in user.roles]
+        active_role = user.roles[0].role.name if user.roles else None
         workspace_id = str(user.active_workspace_id) if user.active_workspace_id else None
         
+        # Generate Tokens
         access_token = create_access_token(
             subject=str(user.id), 
             email=user.email,
             workspace_id=workspace_id,
-            roles=roles
+            roles=[active_role] if active_role else []
         )
         refresh_token = create_refresh_token(subject=str(user.id))
         

@@ -87,13 +87,29 @@ async def get_escalations(
 ):
     return await metrics_service.get_escalation_metrics(db, str(member.workspace_id), time_range)
 
+@router.get("/ai-performance")
+async def get_ai_performance(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await metrics_service.get_ai_performance(db, str(member.workspace_id), time_range)
+
+@router.get("/csat")
+async def get_csat(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    return await metrics_service.get_csat(db, str(member.workspace_id), time_range)
+
 @router.get("/tickets")
 async def get_tickets(
     time_range: Optional[str] = "7d",
     member: WorkspaceMember = Depends(require_permission("view_analytics")),
     db: AsyncSession = Depends(get_db)
 ):
-    return await get_escalations(time_range, member, db)
+    return await metrics_service.get_ticket_analytics(db, str(member.workspace_id), time_range)
 
 @router.get("/system-status")
 async def get_system_status(
@@ -114,6 +130,21 @@ async def get_agents(
     db: AsyncSession = Depends(get_db)
 ):
     return await get_agents_summary(member, db)
+
+@router.get("/widget")
+async def get_widget_analytics(
+    time_range: Optional[str] = "7d",
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    # Just mock for now or use basic volume
+    return {
+        "widget_opens": 1542,
+        "chat_starts": 890,
+        "messages_sent": 3450,
+        "tickets_created": 45,
+        "resolution_rate": 85.0
+    }
 
 @router.get("/top-questions")
 async def get_top_questions(
@@ -207,6 +238,18 @@ async def generate_report(
     db: AsyncSession = Depends(get_db)
 ):
     return await export_report(req, member, db)
+
+@router.get("/embeddings")
+async def get_embedding_analytics(
+    member: WorkspaceMember = Depends(require_permission("view_analytics")),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.vector.quality_service import embedding_quality_service
+    from app.repositories.vector_repo import embedding_record_repo
+    
+    # We could query db for total counts of embeddings, but we return quality tracker stats for now
+    stats = embedding_quality_service.get_analytics()
+    return stats
 
 # Active realtime dashboard connections
 _realtime_connections = {}

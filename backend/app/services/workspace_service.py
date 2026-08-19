@@ -108,6 +108,10 @@ class WorkspaceService:
         # Delete related members? Usually cascade delete handles this, or soft delete.
         await workspace_repo.delete(db, id=workspace_id)
         
+        # Drop the isolated vector collection
+        from app.services.vector.qdrant_service import qdrant_service
+        qdrant_service.delete_workspace_collection(workspace_id)
+        
         await audit_service.log_action(
             db, workspace_id=workspace_id, action="WORKSPACE_DELETED",
             resource_type="workspace", actor_id=actor_id, resource_id=workspace_id

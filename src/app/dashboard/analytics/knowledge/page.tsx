@@ -5,89 +5,89 @@ import { useKnowledgeGaps, useTopQuestions, TimeRange } from "@/lib/api/analytic
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { BookOpen, FileQuestion, TrendingUp } from "lucide-react";
 
 export default function KnowledgeAnalyticsPage() {
   const searchParams = useSearchParams();
   const timeRange = (searchParams.get("range") as TimeRange) || "7d";
 
-  const { data: topQuestions, isLoading: isLoadingQs } = useTopQuestions(timeRange);
-  const { data: gaps, isLoading: isLoadingGaps } = useKnowledgeGaps();
+  const { data: topQuestions, isLoading: loadingTop } = useTopQuestions(timeRange);
+  const { data: gaps, isLoading: loadingGaps } = useKnowledgeGaps();
 
   return (
     <div className="flex flex-col gap-6 w-full pt-4">
+      <div>
+          <h2 className="text-2xl font-bold tracking-tight">Knowledge Analytics</h2>
+          <p className="text-muted-foreground">Identify content gaps and most frequently asked topics.</p>
+      </div>
+
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Top Questions */}
-        <Card className="h-[500px] flex flex-col">
-          <CardHeader className="shrink-0">
-            <CardTitle>Top Questions</CardTitle>
-            <CardDescription>Most frequently asked customer queries</CardDescription>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto">
-            {isLoadingQs ? (
-              <div className="space-y-4">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : !topQuestions?.questions || topQuestions.questions.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-8">No data available</div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Question</TableHead>
-                    <TableHead className="text-right">Freq</TableHead>
-                    <TableHead className="text-right">Conf</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {topQuestions.questions.map((q, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-medium max-w-[200px] truncate" title={q.query}>{q.query}</TableCell>
-                      <TableCell className="text-right">{q.frequency}</TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant={q.confidence > 85 ? "default" : "secondary"}>
-                          {q.confidence}%
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><TrendingUp className="w-4 h-4 text-emerald-500"/> Top Customer Questions</CardTitle>
+                <CardDescription>Most frequently matched queries by the RAG engine.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                {loadingTop ? <Skeleton className="h-64 w-full" /> : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Query</TableHead>
+                                <TableHead className="text-right">Frequency</TableHead>
+                                <TableHead className="text-right">Avg Confidence</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {topQuestions?.questions?.map((q, i) => (
+                                <TableRow key={i}>
+                                    <TableCell className="font-medium text-sm">{q.query}</TableCell>
+                                    <TableCell className="text-right">{q.frequency}</TableCell>
+                                    <TableCell className="text-right">{q.confidence}%</TableCell>
+                                </TableRow>
+                            ))}
+                            {(!topQuestions?.questions || topQuestions.questions.length === 0) && (
+                                <TableRow>
+                                    <TableCell colSpan={3} className="text-center text-muted-foreground py-8">No data available</TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                )}
+            </CardContent>
         </Card>
 
-        {/* Knowledge Gaps */}
-        <Card className="h-[500px] flex flex-col">
-          <CardHeader className="shrink-0">
-            <CardTitle className="text-rose-600">Knowledge Gaps</CardTitle>
-            <CardDescription>Topics with low confidence or high escalation rates</CardDescription>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto">
-            {isLoadingGaps ? (
-              <div className="space-y-4">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : !gaps?.gaps || gaps.gaps.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-8">No critical gaps detected.</div>
-            ) : (
-              <div className="space-y-4">
-                {gaps.gaps.map((item, i) => (
-                  <div key={i} className="flex flex-col p-4 bg-rose-50/50 rounded-lg border border-rose-100">
-                    <span className="text-sm font-semibold mb-2">{item.query}</span>
-                    <div className="flex justify-between items-center text-xs">
-                        <span className="text-rose-600 font-semibold">{item.escalation_count} escalations</span>
-                        <span className="text-muted-foreground">Avg Confidence: {(item.confidence_average * 100).toFixed(1)}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><FileQuestion className="w-4 h-4 text-rose-500"/> Knowledge Gaps</CardTitle>
+                <CardDescription>Queries that resulted in low confidence or escalation.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                {loadingGaps ? <Skeleton className="h-64 w-full" /> : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Unanswered Query</TableHead>
+                                <TableHead className="text-right">Escalations</TableHead>
+                                <TableHead className="text-right">Confidence</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {gaps?.gaps?.map((gap, i) => (
+                                <TableRow key={i}>
+                                    <TableCell className="font-medium text-sm">{gap.query}</TableCell>
+                                    <TableCell className="text-right text-rose-600">{gap.escalation_count}</TableCell>
+                                    <TableCell className="text-right">{(gap.confidence_average * 100).toFixed(1)}%</TableCell>
+                                </TableRow>
+                            ))}
+                            {(!gaps?.gaps || gaps.gaps.length === 0) && (
+                                <TableRow>
+                                    <TableCell colSpan={3} className="text-center text-muted-foreground py-8">No gaps detected</TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                )}
+            </CardContent>
         </Card>
       </div>
     </div>

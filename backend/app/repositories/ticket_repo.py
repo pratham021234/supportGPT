@@ -7,7 +7,7 @@ from datetime import datetime
 from app.repositories.base import BaseRepository
 from app.models.ticket import (
     Ticket, TicketComment, TicketAssignment, TicketActivity, SLAConfiguration,
-    TicketPriority, TicketStatus, TicketSource
+    TicketPriority, TicketStatus, TicketSource, TicketAttachment
 )
 from pydantic import BaseModel
 
@@ -16,6 +16,8 @@ class TicketInternalCreate(BaseModel):
     conversation_id: Optional[str] = None
     customer_id: Optional[str] = None
     title: str
+    ticket_number: str
+    tags: Optional[List[str]] = None
     description: Optional[str] = None
     priority: TicketPriority = TicketPriority.MEDIUM
     status: TicketStatus = TicketStatus.OPEN
@@ -23,6 +25,14 @@ class TicketInternalCreate(BaseModel):
     source: TicketSource = TicketSource.SYSTEM
     created_by: Optional[str] = None
     assigned_to: Optional[str] = None
+
+class TicketAttachmentInternalCreate(BaseModel):
+    workspace_id: str
+    ticket_id: str
+    uploaded_by: Optional[str] = None
+    file_name: str
+    file_type: Optional[str] = None
+    s3_url: str
 
 class TicketCommentInternalCreate(BaseModel):
     ticket_id: str
@@ -69,7 +79,11 @@ class SLAConfigurationRepository(BaseRepository[SLAConfiguration, SLAConfigurati
         result = await db.execute(query)
         return list(result.scalars().all())
 
+class TicketAttachmentRepository(BaseRepository[TicketAttachment, TicketAttachmentInternalCreate, BaseModel]):
+    pass
+
 ticket_repo = TicketRepository(Ticket)
 ticket_comment_repo = TicketCommentRepository(TicketComment)
 ticket_activity_repo = TicketActivityRepository(TicketActivity)
 sla_repo = SLAConfigurationRepository(SLAConfiguration)
+ticket_attachment_repo = TicketAttachmentRepository(TicketAttachment)

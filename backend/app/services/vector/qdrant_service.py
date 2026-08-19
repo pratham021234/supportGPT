@@ -40,6 +40,33 @@ class QdrantService:
             self.client.create_payload_index(collection_name, "source_type", field_schema="keyword")
             self.client.create_payload_index(collection_name, "language", field_schema="keyword")
             self.client.create_payload_index(collection_name, "agent_id", field_schema="keyword")
+            
+            # Create Text index for BM25 (Hybrid search)
+            self.client.create_payload_index(
+                collection_name=collection_name,
+                field_name="content",
+                field_schema=rest.TextIndexParams(
+                    type="text",
+                    tokenizer=rest.TokenizerType.WORD,
+                    min_token_len=2,
+                    max_token_len=15,
+                    lowercase=True,
+                )
+            )
+
+    def delete_workspace_collection(self, workspace_id: str):
+        """Deletes a workspace collection completely."""
+        collection_name = self._get_collection_name(workspace_id)
+        try:
+            self.client.delete_collection(collection_name=collection_name)
+            logger.info(f"Deleted Qdrant collection: {collection_name}")
+        except (UnexpectedResponse, ValueError) as e:
+            logger.error(f"Failed to delete collection {collection_name}: {e}")
+
+    def rebuild_collection(self, workspace_id: str, vector_size: int):
+        """Drops and recreates the workspace collection."""
+        self.delete_workspace_collection(workspace_id)
+        self.ensure_collection(workspace_id, vector_size)
 
     def upsert_vectors(self, workspace_id: str, points: List[rest.PointStruct]):
         """Upserts a list of vectors to the workspace's collection."""
@@ -75,47 +102,75 @@ class QdrantService:
     def search(
         self, 
         workspace_id: str, 
-        query_vector: List[float], 
+        query_vector: Optional[List[float]] = None,
+        query_text: Optional[str] = None,
         limit: int = 10,
-        document_id: Optional[str] = None,
-        agent_id: Optional[str] = None
+        filters: Optional[Dict[str, Any]] = None
     ) -> List[Any]:
         """
-        Performs a semantic search on a workspace collection.
-        Optionally filters by document_id and agent_id for strict isolation.
+        Performs a semantic, keyword, or hybrid search on a workspace collection.
+        filters expects a dictionary like: {"document_id": "...", "agent_id": "...", "tags": ["..."]}
         """
         collection_name = self._get_collection_name(workspace_id)
         
         filter_must = []
-        if document_id:
+        if filters:
+            for key, value in filters.items():
+                if value is None:
+                    continue
+                if isinstance(value, list):
+                    # Any match within the list
+                    filter_must.append(
+                        rest.FieldCondition(
+                            key=key,
+                            match=rest.MatchAny(any=value)
+                        )
+                    )
+                else:
+                    filter_must.append(
+                        rest.FieldCondition(
+                            key=key,
+                            match=rest.MatchValue(value=value)
+                        )
+                    )
+        
+        # If keyword search is provided, we add a MatchText to the filter
+        if query_text:
             filter_must.append(
                 rest.FieldCondition(
-                    key="document_id",
-                    match=rest.MatchValue(value=document_id)
-                )
-            )
-            
-        if agent_id:
-            # Vectors belong either to no agent (global workspace) OR the specific agent
-            # For strict isolation: if agent_id is provided, limit search to that agent + global
-            # For this MVP: exact match on agent_id
-            filter_must.append(
-                rest.FieldCondition(
-                    key="agent_id",
-                    match=rest.MatchValue(value=agent_id)
+                    key="content",
+                    match=rest.MatchText(text=query_text)
                 )
             )
             
         query_filter = rest.Filter(must=filter_must) if filter_must else None
         
         try:
-            results = self.client.query_points(
-                collection_name=collection_name,
-                query=query_vector,
-                query_filter=query_filter,
-                limit=limit
-            )
-            return results.points
+            if query_vector:
+                # Semantic search (or Hybrid if query_text was added to filter)
+                results = self.client.query_points(
+                    collection_name=collection_name,
+                    query=query_vector,
+                    query_filter=query_filter,
+                    limit=limit
+                )
+                return results.points
+            elif query_filter:
+                # Keyword only search
+                results, _ = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=query_filter,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                # Mock scores for keyword search since scroll doesn't score
+                for i, r in enumerate(results):
+                    r.score = 1.0 / (i + 1)
+                return results
+            else:
+                return []
+                
         except (UnexpectedResponse, ValueError) as e:
             logger.error(f"Search failed for {collection_name}: {e}")
             return []

@@ -10,6 +10,7 @@ from app.schemas.common import PaginationParams, FilterParams, PaginatedResponse
 from app.services.knowledge_service import knowledge_service
 from app.services.knowledge_ingestion import document_ingestion_service
 from app.services.processing.retry import retry_processing_service
+from app.services.billing.billing_service import plan_enforcement_service, usage_tracking_service
 
 router = APIRouter()
 
@@ -20,9 +21,30 @@ async def upload_document(
     member: WorkspaceMember = Depends(require_permission("knowledge:create")),
     db: AsyncSession = Depends(get_db)
 ):
-    return await document_ingestion_service.upload_document(
+    # Security Validation
+    allowed_types = ["application/pdf", "text/plain", "text/markdown", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/csv"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+        
+    try:
+        await plan_enforcement_service.check_limit(db, str(member.workspace_id), "documents", 1.0)
+    except plan_enforcement_service.LimitExceededError as e:
+        raise HTTPException(status_code=402, detail=str(e))
+        
+    # Read the first chunk to determine size or set a soft limit based on content-length header
+    # For robust validation we'd stream it and break if it exceeds MAX_SIZE.
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    
+    if file_size > 50 * 1024 * 1024:  # 50MB limit
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 50MB.")
+
+    doc = await document_ingestion_service.upload_document(
         db, str(member.workspace_id), str(member.user_id), file, source_id
     )
+    await usage_tracking_service.track_usage(db, str(member.workspace_id), "documents", 1.0)
+    return doc
 
 from pydantic import BaseModel
 class WebsiteUpload(BaseModel):
@@ -138,3 +160,94 @@ async def get_document_status(
         "started_at": job.started_at,
         "completed_at": job.completed_at
     }
+
+@router.get("/{document_id}/extraction")
+async def get_document_extraction(
+    document_id: str,
+    member: WorkspaceMember = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.repositories.processing_repo import extraction_result_repo
+    ext = await extraction_result_repo.get_by_document(db, document_id)
+    if not ext:
+        raise HTTPException(status_code=404, detail="No extraction results found.")
+    return {
+        "page_count": ext.page_count,
+        "character_count": ext.character_count,
+        "word_count": ext.word_count,
+        "detected_language": ext.detected_language,
+        "cleaned_text": ext.cleaned_text[:1000] if ext.cleaned_text else "",  # Return a preview
+        "metadata": ext.metadata_
+    }
+
+from pydantic import BaseModel
+class RechunkRequest(BaseModel):
+    chunk_strategy: str
+    chunk_size: int
+    chunk_overlap: int
+
+@router.post("/{document_id}/rechunk", status_code=status.HTTP_202_ACCEPTED)
+async def rechunk_document(
+    document_id: str,
+    payload: RechunkRequest,
+    member: WorkspaceMember = Depends(require_permission("knowledge:manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.processing.retry import retry_processing_service
+    # Update document with new metadata settings for chunking
+    doc = await knowledge_service.get_document(db, document_id, str(member.workspace_id))
+    meta = doc.metadata_ or {}
+    meta["chunk_strategy"] = payload.chunk_strategy
+    meta["chunk_size"] = payload.chunk_size
+    meta["chunk_overlap"] = payload.chunk_overlap
+    
+    await knowledge_service.update_document(
+        db, document_id, str(member.workspace_id), DocumentUpdate(metadata_=meta)
+    )
+    
+    # Retry the job which will pick up the new chunking settings during pipeline execution
+    await retry_processing_service.retry_document_job(db, document_id, str(member.workspace_id))
+    return {"status": "rechunking_queued"}
+
+@router.get("/{document_id}/chunks")
+async def get_document_chunks(
+    document_id: str,
+    member: WorkspaceMember = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.repositories.knowledge_repo import document_chunk_repo
+    # Verify document belongs to workspace
+    await knowledge_service.get_document(db, document_id, str(member.workspace_id))
+    
+    chunks = await document_chunk_repo.get_by_document(db, document_id)
+    
+    # Return serializable summary
+    result = []
+    for c in chunks:
+        result.append({
+            "id": str(c.id),
+            "chunk_index": c.chunk_index,
+            "content": c.content,
+            "token_count": c.token_count,
+            "character_count": c.character_count,
+            "section": c.section,
+            "page_number": c.page_number,
+            "parent_heading": c.parent_heading,
+            "chunk_type": c.chunk_type,
+            "metadata": c.metadata_
+        })
+    return {"chunks": result, "total": len(result)}
+
+@router.post("/{document_id}/reembed", status_code=status.HTTP_202_ACCEPTED)
+async def reembed_document(
+    document_id: str,
+    member: WorkspaceMember = Depends(require_permission("knowledge:manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.vector.embedding_service import embedding_service
+    # Verify document belongs to workspace
+    await knowledge_service.get_document(db, document_id, str(member.workspace_id))
+    
+    result = await embedding_service.reembed_document(str(member.workspace_id), document_id)
+    return result
+

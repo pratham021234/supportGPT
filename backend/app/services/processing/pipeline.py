@@ -11,9 +11,10 @@ from app.repositories.processing_repo import (
 from app.repositories.knowledge_repo import document_repo
 from app.services.extractors.engine import extraction_service
 from app.services.extractors.cleaner import TextCleaner
+from app.services.extractors.metadata import metadata_extractor_service
 from app.services.extractors.lang_detect import LanguageDetector
 from app.services.extractors.crawler import website_crawler
-from app.services.processing.chunker import semantic_chunker
+from app.services.processing.chunking.service import chunking_service
 from app.services.processing.metadata import metadata_service
 from app.core.database import async_session_maker
 
@@ -47,6 +48,10 @@ class DocumentProcessingService:
                 # 1. Extraction
                 logger.info(f"Extracting content for job {job_id}")
                 raw_text, page_count, metadata = extraction_service.process_file(file_path, source_type)
+                
+                # Normalize metadata
+                metadata = metadata_extractor_service.extract_standard_metadata(metadata)
+                
                 await processing_job_repo.update(db, db_obj=job, obj_in={"progress": 40})
 
                 # 2. Cleaning
@@ -94,33 +99,25 @@ class DocumentProcessingService:
                     max_tokens = int(doc.metadata_.get("chunk_size", max_tokens))
                     overlap = int(doc.metadata_.get("chunk_overlap", overlap))
 
-                chunks = semantic_chunker.chunk_text(
-                    cleaned_text, 
-                    base_metadata, 
-                    strategy=chunk_strategy,
-                    max_tokens=max_tokens,
-                    overlap=overlap
+                chunks = chunking_service.process_and_store(
+                    db=db,
+                    workspace_id=workspace_id,
+                    document_id=document_id,
+                    text=cleaned_text,
+                    file_type=doc.file_type if doc else source_type,
+                    base_metadata=base_metadata,
+                    strategy_name=chunk_strategy
                 )
                 
-                # Save Chunks
-                for chunk_result in chunks:
-                    chunk = DocumentChunk(
-                        workspace_id=workspace_id,
-                        document_id=document_id,
-                        chunk_index=chunk_result.metadata.get("chunk_index", 0),
-                        content=chunk_result.content,
-                        token_count=chunk_result.token_count,
-                        chunk_type="TEXT",
-                        metadata_=chunk_result.metadata
-                    )
-                    db.add(chunk)
+                # Save Chunks via service
+                await chunking_service.save_chunks(db, workspace_id, document_id, chunks)
                 
                 await db.commit()
                 
                 # Update Document Status
                 doc = await document_repo.get(db, id=document_id)
                 if doc:
-                    await document_repo.update(db, db_obj=doc, obj_in={"status": DocumentStatus.READY, "language": lang})
+                    await document_repo.update(db, db_obj=doc, obj_in={"status": DocumentStatus.INDEXING, "language": lang})
 
                 # Complete Job
                 await processing_job_repo.update(db, db_obj=job, obj_in={
@@ -209,31 +206,24 @@ class DocumentProcessingService:
                     max_tokens = int(doc.metadata_.get("chunk_size", max_tokens))
                     overlap = int(doc.metadata_.get("chunk_overlap", overlap))
 
-                chunks = semantic_chunker.chunk_text(
-                    cleaned_text, 
-                    base_metadata, 
-                    strategy=chunk_strategy,
-                    max_tokens=max_tokens,
-                    overlap=overlap
+                chunks = chunking_service.process_and_store(
+                    db=db,
+                    workspace_id=workspace_id,
+                    document_id=document_id,
+                    text=cleaned_text,
+                    file_type="WEBSITE",
+                    base_metadata=base_metadata,
+                    strategy_name=chunk_strategy
                 )
                 
-                for chunk_result in chunks:
-                    chunk = DocumentChunk(
-                        workspace_id=workspace_id,
-                        document_id=document_id,
-                        chunk_index=chunk_result.metadata.get("chunk_index", 0),
-                        content=chunk_result.content,
-                        token_count=chunk_result.token_count,
-                        chunk_type="TEXT",
-                        metadata_=chunk_result.metadata
-                    )
-                    db.add(chunk)
+                # Save Chunks via service
+                await chunking_service.save_chunks(db, workspace_id, document_id, chunks)
                 
                 await db.commit()
                 
                 doc = await document_repo.get(db, id=document_id)
                 if doc:
-                    await document_repo.update(db, db_obj=doc, obj_in={"status": DocumentStatus.READY, "language": lang})
+                    await document_repo.update(db, db_obj=doc, obj_in={"status": DocumentStatus.INDEXING, "language": lang})
 
                 await processing_job_repo.update(db, db_obj=job, obj_in={
                     "status": JobStatus.COMPLETED,

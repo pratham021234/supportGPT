@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState } from "react";
 import { useConversation, useMessages, useSendMessage, useAssignConversation, useResolveConversation } from "@/lib/api/conversations";
 import { useConversationWebSocket } from "@/hooks/use-websocket";
+import { useAuthStore } from "@/store/authStore";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { MoreVertical, Send, Bot, CheckCircle2, ShieldAlert, FileText, Lock } from "lucide-react";
+import { MoreVertical, Send, Bot, CheckCircle2, ShieldAlert, FileText, Lock, Paperclip } from "lucide-react";
 
 export function ConversationThread({ conversationId }: { conversationId: string | null }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -24,9 +25,10 @@ export function ConversationThread({ conversationId }: { conversationId: string 
   const { mutate: sendMessage, isPending: isSending } = useSendMessage(conversationId || "");
   const { mutate: assignToHuman, isPending: isAssigning } = useAssignConversation(conversationId || "");
   const { mutate: resolveConv, isPending: isResolving } = useResolveConversation(conversationId || "");
+  const user = useAuthStore(state => state.user);
 
   // Initialize WebSocket connection for live updates
-  const { isConnected } = useConversationWebSocket(conversationId);
+  const { isConnected, isTyping, streamingMessage } = useConversationWebSocket(conversationId);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -47,9 +49,17 @@ export function ConversationThread({ conversationId }: { conversationId: string 
   };
 
   const handleTakeOver = () => {
-    // We assume the current user is taking over. In a real app we'd pass their ID.
-    // We use a dummy ID here for the MVP
-    assignToHuman("00000000-0000-0000-0000-000000000000"); 
+    if (user?.id) {
+      assignToHuman(user.id);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && !isSending) {
+      // Stub: in a real app, upload file to s3, get URL, then send message with attachment URL
+      sendMessage({ content: `[Agent attached file: ${file.name}]`, is_internal: isInternal });
+    }
   };
 
   if (!conversationId) {
@@ -179,7 +189,7 @@ export function ConversationThread({ conversationId }: { conversationId: string 
               }
 
               const isCustomer = msg.sender_type === "CUSTOMER";
-              const isAI = msg.sender_type === "AI_AGENT";
+              const isAI = msg.sender_type === "AI";
               
               return (
                 <div key={msg.id} className={`flex items-end gap-3 ${isCustomer ? "" : "flex-row-reverse"}`}>
@@ -241,6 +251,26 @@ export function ConversationThread({ conversationId }: { conversationId: string 
               );
             })
           )}
+
+          {/* Streaming Message Display */}
+          {(isTyping || streamingMessage) && (
+            <div className="flex items-end gap-3">
+              <Avatar className="h-8 w-8 shrink-0 bg-primary/10">
+                <AvatarFallback className="bg-transparent text-primary">
+                  <Bot className="h-5 w-5" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="grid gap-1 max-w-[85%] text-right">
+                <div className="font-semibold text-sm flex items-center gap-2 justify-end">
+                  Support AI
+                </div>
+                <div className="px-4 py-3 rounded-2xl text-sm whitespace-pre-wrap bg-primary text-primary-foreground rounded-br-sm text-left">
+                  {streamingMessage || (isTyping ? "..." : "")}
+                  <span className="inline-block w-1 h-3 ml-1 bg-primary-foreground animate-pulse" />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </ScrollArea>
 
@@ -267,10 +297,14 @@ export function ConversationThread({ conversationId }: { conversationId: string 
           </div>
         </div>
         
-        <form onSubmit={handleSend} className="relative">
+        <form onSubmit={handleSend} className="relative flex items-center">
+          <div className="absolute left-2 top-2 h-8 w-8 flex items-center justify-center cursor-pointer hover:bg-muted rounded-full z-10 overflow-hidden">
+             <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} />
+             <Paperclip className="h-4 w-4 text-muted-foreground" />
+          </div>
           <Input 
             placeholder={isInternal ? "Type a private internal note..." : "Type a reply to the customer..."} 
-            className={`pr-20 py-6 ${isInternal ? "bg-amber-500/5 border-amber-500/30 focus-visible:ring-amber-500" : ""}`}
+            className={`pl-12 pr-24 py-6 ${isInternal ? "bg-amber-500/5 border-amber-500/30 focus-visible:ring-amber-500" : ""}`}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             disabled={conversation.status === "RESOLVED" || isSending}

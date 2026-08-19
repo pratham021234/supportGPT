@@ -18,7 +18,7 @@ class AgentType(str, enum.Enum):
     SALES = "SALES"
     TECHNICAL = "TECHNICAL"
     HR = "HR"
-    OPERATIONS = "OPERATIONS"
+    BILLING = "BILLING"
     CUSTOM = "CUSTOM"
 
 class AgentVisibility(str, enum.Enum):
@@ -41,6 +41,8 @@ class Agent(Base, TimestampMixin, SoftDeleteMixin, AuditMixin):
     visibility = Column(Enum(AgentVisibility), default=AgentVisibility.INTERNAL, nullable=False)
     
     default_language = Column(String(10), default="en")
+    permissions = Column(JSONB, nullable=True, default={"read_knowledge": True, "create_tickets": False, "transfer_human": True, "access_analytics": False, "manage_conversations": False})
+    settings = Column(JSONB, nullable=True, default={})
     
     workspace = relationship("Workspace")
     creator = relationship("User", foreign_keys="[Agent.created_by]")
@@ -63,6 +65,7 @@ class AgentPrompt(Base, TimestampMixin):
     fallback_message = Column(Text, nullable=True, default="I couldn't find reliable information. Would you like to speak with a human agent?")
     tone = Column(String(50), default="Professional")
     behavior_rules = Column(Text, nullable=True)
+    safety_rules = Column(Text, nullable=True)
     
     agent = relationship("Agent", back_populates="prompt")
 
